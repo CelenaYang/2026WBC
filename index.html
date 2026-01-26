@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>圖片編排工具</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    /* 固定畫布真實尺寸 (以 1200px 為基準)，但在小螢幕上仍會縮放 */
+    #canvas-root { width:100%; max-width:1200px; }
+    #canvas { width:1200px; max-width:100%; height:490px; position:relative; border:1px dashed #cbd5e1; border-style:dashed; touch-action:none; }
+    #canvas .base-img{ display:block; width:100%; height:auto; border-radius:8px; }
+    #placed-layer{ position:absolute; left:0; top:0; width:100%; height:100%; pointer-events:none; }
+    .placed-card{ position:absolute; pointer-events:auto; user-select:none; touch-action:none; cursor:grab; }
+    .card-list{ -webkit-overflow-scrolling:touch; }
+  </style>
+</head>
+<body class="bg-slate-50 text-slate-800 p-6">
+  <div class="max-w-5xl mx-auto space-y-4">
+    <h1 class="text-lg font-semibold text-slate-900 mb-3">圖片編排工具</h1>
+
+    <div class="bg-white border border-slate-200 rounded-xl shadow-sm p-4">
+      <!-- Canvas 區 -->
+      <div id="canvas-root" class="">
+        <div id="canvas" class="bg-white" style="width:1200px; height:490px;">
+          <img id="base-image" class="base-img" src="assets/base.png" alt="底圖" draggable="false" width="1200" height="490" />
+          <div id="placed-layer"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Controls card -->
+    <div class="bg-white border border-slate-200 rounded-xl shadow-sm p-4 space-y-4">
+      <div class="flex gap-2">
+        <label class="flex-1">
+          <input id="base-file" type="file" accept="image/*" class="hidden" />
+          <button id="choose-base" class="w-full bg-slate-900 text-white hover:bg-slate-800 rounded-lg px-4 py-2">選擇/載入底圖</button>
+        </label>
+        <button id="download-btn" class="bg-slate-900 text-white hover:bg-slate-800 rounded-lg px-4 py-2">下載 PNG</button>
+        <button id="clear-all" class="bg-rose-600 text-white hover:bg-rose-700 rounded-lg px-4 py-2">清除畫布</button>
+      </div>
+
+      <!-- 精細位置調整控制面板 -->
+      <div id="pos-controls" class="grid grid-cols-1 gap-2">
+        <div class="flex items-center gap-2">
+          <div class="text-sm text-slate-700 w-20">已選卡片：</div>
+          <div id="selected-info" class="flex-1 text-sm text-slate-700">--</div>
+        </div>
+        <div class="flex items-center gap-2">
+          <label class="text-sm text-slate-700">X:</label>
+          <input id="pos-x" type="number" class="w-24 p-1 border rounded" />
+          <label class="text-sm text-slate-700">Y:</label>
+          <input id="pos-y" type="number" class="w-24 p-1 border rounded" />
+          <div class="flex items-center gap-1 ml-2">
+            <button id="nudge-left" class="bg-white border border-slate-200 hover:bg-slate-50 rounded-lg px-3 py-1">◀1</button>
+            <button id="nudge-right" class="bg-white border border-slate-200 hover:bg-slate-50 rounded-lg px-3 py-1">1▶</button>
+            <button id="nudge-up" class="bg-white border border-slate-200 hover:bg-slate-50 rounded-lg px-3 py-1">▲1</button>
+            <button id="nudge-down" class="bg-white border border-slate-200 hover:bg-slate-50 rounded-lg px-3 py-1">▼1</button>
+            <button id="nudge-left10" class="bg-white border border-slate-200 hover:bg-slate-50 rounded-lg px-2 py-1 text-xs">◀10</button>
+            <button id="nudge-right10" class="bg-white border border-slate-200 hover:bg-slate-50 rounded-lg px-2 py-1 text-xs">10▶</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 狀態按鈕：對已選卡片設定晉級/未晉級 -->
+      <div class="flex gap-2 items-center">
+        <div class="text-sm text-slate-700 w-20">狀態：</div>
+        <div class="flex items-center gap-2">
+          <button id="set-adv" class="bg-white border border-slate-200 hover:bg-slate-50 rounded-lg px-4 py-2 text-sm">設定為：晉級</button>
+          <button id="set-elim" class="bg-white border border-slate-200 hover:bg-slate-50 rounded-lg px-4 py-2 text-sm">設定為：未晉級</button>
+          <button id="set-clear" class="bg-white border border-slate-200 hover:bg-slate-50 rounded-lg px-4 py-2 text-sm">清除狀態</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 卡片清單卡片 -->
+    <div class="bg-white border border-slate-200 rounded-xl shadow-sm p-4">
+      <div class="mb-2 text-sm text-slate-700">下方為隊伍卡片（全部展開），將卡片拖曳到上方畫布並放開以放置。</div>
+
+      <!-- 手動產生卡片 -->
+      <div class="mb-3 flex gap-2 items-center">
+        <input id="manual-text" placeholder="輸入卡片文字（例如：1/23 比賽）" class="flex-1 p-2 border rounded" />
+        <button id="create-manual" class="bg-slate-900 text-white hover:bg-slate-800 rounded-lg px-4 py-2">產生卡片</button>
+      </div>
+
+      <!-- 卡片列表區（全部展開、換行） -->
+      <div id="card-list" class="card-list py-2">
+        <div id="cards" class="flex flex-wrap gap-2 px-2"></div>
+      </div>
+
+      <div class="mt-3 text-xs text-slate-500">資料來源：Google Sheet CSV（載入後會自動產生卡片）</div>
+    </div>
+
+  </div>
+
+  <!-- CSV table for reference -->
+  <div class="bg-white border border-slate-200 rounded-xl shadow-sm p-4 max-w-5xl mx-auto mt-6">
+    <h2 class="text-sm font-medium mb-2 text-slate-900">CSV 資料參考</h2>
+    <div id="csv-table" class="text-sm text-slate-700 overflow-auto"></div>
+  </div>
+
+  <script src="assets/main.js"></script>
+</body>
+</html>
