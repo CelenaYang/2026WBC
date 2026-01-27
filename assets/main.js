@@ -1,6 +1,6 @@
 // 圖片編排工具 main.js
 (function(){
-  const CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vTHz9Co4woY4xFfOQakyHVTBdVPzPpFEN4AotZPIc2fQP4Koli5Ru8Uk06qxSbi6P292c8phIFyptVe/pub?output=csv';
+  const CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vTHz9Co4woY4xFfOQakyHVTBdVPzPpFEN4AotZPIc2fQP4Koli5Ru8Uk06qxSbi6P292c8phIFyptVe/pub?output=csv';  
   const FLAG_BASE = 'https://raw.githubusercontent.com/CelenaYang/2026WBC/main/teamPIC/';
   const CANVAS_W = 1200, CANVAS_H = 490;
 
@@ -118,17 +118,33 @@
     return el;
   }
 
-  // Drop handling on canvas
+  // Unified drop handling on canvas: support both dragging list-cards (application/json)
+  // and dropping image files to set base image. Always preventDefault on dragover
+  // so the browser allows drop.
   canvasEl.addEventListener('dragover', (e)=>{ e.preventDefault(); });
   canvasEl.addEventListener('drop', (e)=>{
     e.preventDefault();
-    const data = e.dataTransfer.getData('application/json');
-    if(!data) return;
-    const obj = JSON.parse(data);
-    const rect = canvasEl.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
-    addPlacedCard(obj, x, y);
+    try{
+      // If files present, treat as base image change (drop a file onto canvas)
+      if(e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length){
+        const f = e.dataTransfer.files[0];
+        if(f && f.type && f.type.startsWith('image/')){
+          const url = URL.createObjectURL(f);
+          baseImage.src = url;
+          return;
+        }
+      }
+
+      // Otherwise, try to handle drag from list cards (application/json payload)
+      const data = e.dataTransfer.getData('application/json');
+      if(data){
+        const obj = JSON.parse(data);
+        const rect = canvasEl.getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        const y = e.clientY - rect.top;
+        addPlacedCard(obj, x, y);
+      }
+    }catch(err){ console.warn('canvas drop handling error', err); }
   });
 
   // add placed card to layer; x,y in display pixels relative to canvasEl bounding box
@@ -264,61 +280,160 @@
   }
 
   downloadBtn.addEventListener('click', async ()=>{
-    const off = document.createElement('canvas');
-    off.width = CANVAS_W; off.height = CANVAS_H;
-    const ctx = off.getContext('2d');
+    try{
+      console.log('export: start');
+      const STAGE_W = CANVAS_W, STAGE_H = CANVAS_H;
 
-    // draw base image (current)
-    await drawBaseToCtx(ctx);
+      // 等字型就緒
+      if(document.fonts && document.fonts.ready) try{ await document.fonts.ready; }catch(e){}
 
-    // draw each placed card
-    const items = Array.from(placedLayer.children);
-    for(const el of items){
-      const imgEl = el.querySelector('img');
-      const name = (el.textContent||'').trim();
-      const modelX = Number(el.dataset.modelX) || 0;
-      const modelY = Number(el.dataset.modelY) || 0;
-      const modelW = Number(el.dataset.width) || 180;
+      const stageEl = canvasEl;
+      // 等舞台內所有圖片就緒（包含放置卡片內的 img 與底圖）
+      const imgs = Array.from(new Set([...(stageEl.querySelectorAll('img')||[]), baseImage].filter(Boolean)));
+      await Promise.all(imgs.map(async (img)=>{
+        if(!img) return;
+        if(!img.complete){ await new Promise(res=>{ const onDone=()=>{ img.onload=null; img.onerror=null; res(); }; img.onload = onDone; img.onerror = onDone; }); }
+        if(img.decode) await img.decode().catch(()=>{});
+      }));
 
-      // load image
-      if(imgEl && imgEl.src){
-        try{
-          const img = await loadImage(imgEl.src);
-          const h = Math.round((modelW * img.height) / img.width);
-          ctx.drawImage(img, modelX - Math.round(modelW/2), modelY - Math.round(h/2), modelW, h);
-          // draw text to right of image with shadow
-          ctx.font = '18px sans-serif';
-          ctx.fillStyle = (el.dataset.status==='adv') ? '#ffffff' : (el.dataset.status==='elim' ? '#0e7f86' : 'rgba(0,0,0,0.85)');
-          ctx.textBaseline = 'middle';
-          ctx.shadowColor = 'rgba(0,0,0,0.35)';
-          ctx.shadowOffsetX = 0;
-          ctx.shadowOffsetY = 1;
-          ctx.shadowBlur = 2;
-          ctx.fillText(name, modelX + Math.round(modelW/2) + 8, modelY);
-          // reset shadow
-          ctx.shadowColor = 'transparent';
-        }catch(e){
-          console.warn('image draw failed', e);
+      // 使用放置層 (`placedLayer`) 作為精準的 content-box 原點，避免包含其他 UI 元素
+      const layerRect = placedLayer.getBoundingClientRect();
+      const originLeft = layerRect.left + placedLayer.clientLeft;
+      const originTop = layerRect.top + placedLayer.clientTop;
+      // 對齊放置層的 client 大小（不含 border）來計算縮放
+      const sx = STAGE_W / placedLayer.clientWidth;
+      const sy = STAGE_H / placedLayer.clientHeight;
+
+      // 建立離屏 canvas（固定真實尺寸）
+      const offscreen = document.createElement('canvas');
+      offscreen.width = STAGE_W;
+      offscreen.height = STAGE_H;
+      const g = offscreen.getContext('2d');
+
+      // 畫底圖，若失敗則清空白底
+      try{
+        await drawBaseToCtx(g);
+      }catch(e){ console.warn('drawBaseToCtx failed', e); g.clearRect(0,0,STAGE_W,STAGE_H); }
+
+      // 依照 DOM 當下 rect（左上角）繪製每張卡片
+      const placedEls = Array.from(placedLayer.children);
+      for(const el of placedEls){
+        const r = el.getBoundingClientRect();
+        const exportW = r.width * sx;
+        const exportH = r.height * sy;
+        // 使用 element 的 model 座標作為中心點，避免 transform(-50%,-50%) 導致的位移差異
+        const modelX = Number(el.dataset.modelX) || Math.round(((r.left - originLeft) + r.width/2) * sx);
+        const modelY = Number(el.dataset.modelY) || Math.round(((r.top  - originTop)  + r.height/2) * sy);
+        const exportCenterX = modelX * (STAGE_W / CANVAS_W);
+        const exportCenterY = modelY * (STAGE_H / CANVAS_H);
+        const exportX = exportCenterX - exportW/2;
+        const exportY = exportCenterY - exportH/2;
+
+        // 先繪製卡片的外框（圓角背景 + 邊框），保持與畫面預覽一致
+        const status = el.dataset.status || '';
+        let bgFill = 'rgba(255,255,255,0.9)';
+        if(status === 'adv') bgFill = '#0aa35a';
+        if(status === 'elim') bgFill = '#9fb6bf';
+        const strokeCol = 'rgba(0,0,0,0.06)';
+        const radius = Math.min(24, Math.max(8, exportH * 0.12));
+        // draw rounded rect at exportX,exportY,exportW,exportH
+        g.beginPath();
+        const x0 = exportX, y0 = exportY, w0 = exportW, h0 = exportH, r0 = radius;
+        g.moveTo(x0 + r0, y0);
+        g.arcTo(x0 + w0, y0, x0 + w0, y0 + h0, r0);
+        g.arcTo(x0 + w0, y0 + h0, x0, y0 + h0, r0);
+        g.arcTo(x0, y0 + h0, x0, y0, r0);
+        g.arcTo(x0, y0, x0 + w0, y0, r0);
+        g.closePath();
+        g.fillStyle = bgFill;
+        g.fill();
+        g.lineWidth = 1;
+        g.strokeStyle = strokeCol;
+        g.stroke();
+
+        // 若卡片內有圖片，繪製該圖片在相對位置與大小
+        const imgEl = el.querySelector('img');
+        if(imgEl && imgEl.src){
+          try{  
+            const childRect = imgEl.getBoundingClientRect();
+            // use offsets relative to card rect so they align with new exportX/exportY
+            const childOffsetX = childRect.left - r.left;
+            const childOffsetY = childRect.top - r.top;
+            const childX = exportX + childOffsetX * sx;
+            const childY = exportY + childOffsetY * sy;
+            const childW = childRect.width * sx;
+            const childH = childRect.height * sy;
+            const img = await loadImage(imgEl.src);
+            g.drawImage(img, childX, childY, childW, childH);
+          }catch(e){ console.warn('placed img draw failed', e); }
         }
-      } else {
-        // text-only card
-        ctx.font = '18px sans-serif';
-        ctx.fillStyle = (el.dataset.status==='adv') ? '#ffffff' : (el.dataset.status==='elim' ? '#0e7f86' : 'rgba(0,0,0,0.85)');
-        ctx.textBaseline = 'middle';
-        ctx.shadowColor = 'rgba(0,0,0,0.35)';
-        ctx.shadowOffsetX = 0;
-        ctx.shadowOffsetY = 1;
-        ctx.shadowBlur = 2;
-        ctx.fillText(name, modelX, modelY);
-        ctx.shadowColor = 'transparent';
-      }
-    }
 
-    const url = off.toDataURL('image/png');
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'composed.png';
-    a.click();
+        // 繪製文字：使用卡片中文本節點的 rect 來定位，並以其計算文字大小
+        const nameNode = el.querySelector('div');
+        if(nameNode){
+          const nameRect = nameNode.getBoundingClientRect();
+          const nameOffsetX = nameRect.left - r.left;
+          const nameOffsetY = nameRect.top - r.top + nameRect.height/2; // middle
+          const textX = exportX + nameOffsetX * sx;
+          const textY = exportY + nameOffsetY * sy;
+          const cs = window.getComputedStyle(nameNode);
+          const baseFontSize = parseFloat(cs.fontSize) || 18;
+          const drawFontSize = Math.max(10, Math.round(baseFontSize * ((sx+sy)/2)));
+          g.font = `${drawFontSize}px ${cs.fontFamily || 'sans-serif'}`;
+          g.fillStyle = (el.dataset.status==='adv') ? '#ffffff' : (el.dataset.status==='elim' ? '#0e7f86' : 'rgba(0,0,0,0.85)');
+          g.textBaseline = 'middle';
+          g.shadowColor = 'rgba(0,0,0,0.35)';
+          g.shadowOffsetX = 0; g.shadowOffsetY = 1; g.shadowBlur = 2;
+          g.fillText((nameNode.textContent||'').trim(), textX, textY);
+          g.shadowColor = 'transparent';
+        }
+      }
+      // helper: inline computed styles from source -> target (deep)
+      function inlineComputedStyles(srcRoot, dstRoot){
+        const srcAll = [srcRoot].concat(Array.from(srcRoot.querySelectorAll('*')));
+        const dstAll = [dstRoot].concat(Array.from(dstRoot.querySelectorAll('*')));
+        for(let i=0;i<srcAll.length && i<dstAll.length;i++){
+          const s = srcAll[i];
+          const d = dstAll[i];
+          try{
+            const cs = window.getComputedStyle(s);
+            for(let j=0;j<cs.length;j++){
+              const prop = cs[j];
+              const val = cs.getPropertyValue(prop);
+              const prio = cs.getPropertyPriority(prop);
+              d.style.setProperty(prop, val, prio);
+            }
+          }catch(e){ /* ignore */ }
+        }
+      }
+
+      // helper: serialize element to image via SVG foreignObject
+      async function domToRaster(el){
+        const r = el.getBoundingClientRect();
+        const w = Math.max(1, Math.round(r.width));
+        const h = Math.max(1, Math.round(r.height));
+        const clone = el.cloneNode(true);
+        // inline styles to clone to preserve appearance
+        inlineComputedStyles(el, clone);
+        // ensure images keep src attributes (cloned)
+        // wrap in XHTML foreignObject
+        const svg = `<?xml version="1.0" encoding="utf-8"?>\n<svg xmlns='http://www.w3.org/2000/svg' width='${w}' height='${h}'>\n  <foreignObject width='100%' height='100%'>\n    <div xmlns='http://www.w3.org/1999/xhtml' style='width:${w}px;height:${h}px'>${clone.outerHTML}</div>\n  </foreignObject>\n</svg>`;
+        const url = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+        const img = await loadImage(url);
+        return img;
+      }
+
+      
+      const url = offscreen.toDataURL('image/png');
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'composed.png';
+      a.click();
+      console.log('export: done');
+    }catch(err){
+      console.error('export failed', err);
+      try{ alert('匯出過程發生錯誤，請查看 console'); }catch(e){}
+    }
   });
 
   async function drawBaseToCtx(ctx){
