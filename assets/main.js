@@ -2,7 +2,8 @@
 (function(){
   const CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vTHz9Co4woY4xFfOQakyHVTBdVPzPpFEN4AotZPIc2fQP4Koli5Ru8Uk06qxSbi6P292c8phIFyptVe/pub?output=csv';  
   const FLAG_BASE = 'https://raw.githubusercontent.com/CelenaYang/2026WBC/main/teamPIC/';
-  const CANVAS_W = 1200, CANVAS_H = 490;
+  const CANVAS_W = 1200;
+  let CANVAS_H = 490; // 當載入不同長寬比的底圖時，可能會更新此值
 
   const baseImage = document.getElementById('base-image');
   const chooseBaseBtn = document.getElementById('choose-base');
@@ -28,7 +29,85 @@
   const setClearBtn = document.getElementById('set-clear');
   const csvTable = document.getElementById('csv-table');
 
+  // 在畫布上方加入提示 overlay（DOM 元素），不會影響互動
+  (function createCanvasHint(){
+    if(document.getElementById('canvas-hint-overlay')) return;
+    try{
+      const overlay = document.createElement('div');
+      overlay.id = 'canvas-hint-overlay';
+      overlay.textContent = '可以拖曳圖片至此';
+      overlay.style.position = 'absolute';
+      overlay.style.left = '50%';
+      overlay.style.top = '50%';
+      overlay.style.transform = 'translate(-50%, -50%)';
+      overlay.style.pointerEvents = 'none';
+      overlay.style.zIndex = '9999';
+      overlay.style.display = 'flex';
+      overlay.style.alignItems = 'center';
+      overlay.style.justifyContent = 'center';
+      overlay.style.width = '100%';
+      overlay.style.height = '100%';
+      overlay.style.fontSize = '22px';
+      overlay.style.fontWeight = '600';
+      overlay.style.color = 'rgba(0,0,0,0.45)';
+      overlay.style.userSelect = 'none';
+      if(canvasEl) canvasEl.appendChild(overlay);
+    }catch(e){ console.warn('createCanvasHint failed', e); }
+  })();
+  // 隱藏 overlay 的輔助函式，會在 dragenter / drop / 放置卡片時呼叫
+  function hideCanvasHint(){
+    try{
+      const o = document.getElementById('canvas-hint-overlay');
+      if(o) o.style.display = 'none';
+    }catch(e){ /* ignore */ }
+  }
+  // 當使用者把東西拖到畫布上方時，移除提示（避免遮擋視覺）
+  if(canvasEl){
+    canvasEl.addEventListener('dragenter', ()=> hideCanvasHint());
+    canvasEl.addEventListener('drop', ()=> hideCanvasHint());
+  }
+
   let placedIdCounter = 1;
+  // 卡片寬度固定計算：fixedW = paddingLR + flagBlockW + gap + measureText(四字樣本)
+  const CARD_PADDING_LR = 40; // left+right padding (px)
+  const FLAG_BLOCK_W = 36; // 預留給旗幟圖示的區塊寬度 (px)
+  const FLAG_TEXT_GAP = 10; // 圖片與文字間隔 (px)
+  // 放置在舞台上的旗幟卡固定縮放比例（非手動文字卡）
+  const PLACED_CARD_SCALE = 0.7;
+  // canvas 上下文供 measureText 使用
+  const _textMeasureCanvas = (()=>{ const c = document.createElement('canvas'); return c.getContext('2d'); })();
+  // 計算以「4字基準」的卡片固定寬度 — 傳入 fontSize 即可（text 參數不使用）
+  function computeCardWidthByChars(fontSize){
+    const sample = '一二三四五'; // 4 個字樣本
+    const fontFamily = (document.body && window.getComputedStyle(document.body).fontFamily) || 'sans-serif';
+    _textMeasureCanvas.font = `${fontSize}px ${fontFamily}`;
+    const textW = Math.round(_textMeasureCanvas.measureText(sample).width || (fontSize * 4));
+    const fixedW = Math.round(CARD_PADDING_LR + FLAG_BLOCK_W + FLAG_TEXT_GAP + textW);
+    return Math.max(80, fixedW);
+  }
+
+  // 當底圖改變時，根據影像 natural size 更新 CANVAS_H 並調整畫布顯示高度
+  function updateCanvasSizeFromBase(img){
+    try{
+      if(!img || !img.naturalWidth || !img.naturalHeight) return;
+      const newH = Math.round(CANVAS_W * (img.naturalHeight / img.naturalWidth));
+      CANVAS_H = newH || CANVAS_H;
+      // 根據目前畫面中 canvas 的顯示寬度，計算對應的顯示高度
+      const displayW = canvasEl.clientWidth || canvasEl.getBoundingClientRect().width || CANVAS_W;
+      const displayH = Math.round(displayW * (CANVAS_H / CANVAS_W));
+      canvasEl.style.height = displayH + 'px';
+      // update base image intrinsic attributes for clarity
+      baseImage.width = CANVAS_W;
+      baseImage.height = CANVAS_H;
+      // 重新計算所有放置元素的顯示位置以配合新的顯示尺寸
+      Array.from(placedLayer.children).forEach(ch => {
+        try{ updateDisplayPos(ch); }catch(e){}
+      });
+    }catch(e){ console.warn('updateCanvasSizeFromBase failed', e); }
+  }
+
+  // 監聽 base image 載入事件
+  baseImage.addEventListener('load', ()=> updateCanvasSizeFromBase(baseImage));
 
   // Helper: parse simple CSV
   function parseCSV(text){
@@ -64,15 +143,63 @@
     return null;
   }
 
-  // create list card (draggable)
+  // 建立清單卡片（可拖曳）
   function makeListCard(item){
+    // 手動建立的卡片：純文字（無外框、無底圖）
+    if(item.manual){
+      const elm = document.createElement('div');
+      // 明確指定為 inline-flex，並重設可能從父層繼承的樣式
+      elm.style.display = 'inline-flex';
+      elm.style.alignItems = 'center';
+      elm.style.width = 'auto';
+      elm.style.flex = '0 0 auto';
+      elm.draggable = true;
+
+      // 明確指定「完全透明、無視覺容器」
+      elm.style.background = 'transparent';
+      elm.style.border = 'none';
+      elm.style.boxShadow = 'none';
+
+      elm.style.padding = '0';
+      elm.style.margin = '0 6px';
+      elm.style.cursor = 'grab';
+
+      // 👉 字體調整：放大並加粗
+      elm.style.fontWeight = '600';
+      elm.style.fontSize = '20px';
+
+      elm.textContent = item.name || '';
+
+      elm.addEventListener('dragstart', (ev)=>{
+        try{ ev.dataTransfer.setData('application/json', JSON.stringify(item)); }catch(e){}
+        try{ ev.dataTransfer.effectAllowed = 'copy'; }catch(e){}
+        console.log('list: dragstart (manual)', item && item.name);
+      });
+
+      // 手機觸控處理：雙擊或長按以將卡片放在畫布中央
+      (function(){
+        let lastTap = 0, longPressTimer = null, moved = false;
+        const dblThreshold = 300; const longPressDelay = 500;
+        function placeCenter(){
+          try{ const rect = canvasEl.getBoundingClientRect(); addPlacedCard(item, rect.width/2, rect.height/2); }catch(e){ console.warn('placeCenter failed', e); }
+        }
+        elm.addEventListener('touchstart', (ev)=>{ moved = false; if(longPressTimer) clearTimeout(longPressTimer); longPressTimer = setTimeout(()=>{ placeCenter(); longPressTimer = null; }, longPressDelay); }, {passive:true});
+        elm.addEventListener('touchmove', (ev)=>{ moved = true; if(longPressTimer){ clearTimeout(longPressTimer); longPressTimer = null; } }, {passive:true});
+        elm.addEventListener('touchend', (ev)=>{ if(longPressTimer){ clearTimeout(longPressTimer); longPressTimer = null; } const now = Date.now(); if(now - lastTap <= dblThreshold && !moved){ placeCenter(); lastTap = 0; } else lastTap = now; });
+      })();
+
+      return elm;
+    }
+
     const el = document.createElement('div');
     el.className = 'bg-white border border-slate-200 rounded-xl shadow-sm p-3 inline-flex items-center gap-3';
-    // fixed width for list cards for consistent layout
-    el.style.width = '220px';
-    el.style.flex = '0 0 220px';
+    // 固定寬度的清單卡片以保持版面一致（使用四字基準）
+    const baseFont = 18;
+    const stdW = computeCardWidthByChars(baseFont);
+    el.style.width = stdW + 'px';
+    el.style.flex = '0 0 ' + stdW + 'px';
     el.draggable = true;
-    // only create image if a flag URL exists (team cards); text-only cards skip the img
+    // 只有在有旗幟網址時才建立圖像（隊伍卡）；純文字卡片則不建立 img
     let img = null;
     if(item.flag){
       img = document.createElement('img');
@@ -80,6 +207,7 @@
       img.alt = '';
       img.style.height = '30px';
       img.style.width = 'auto';
+      img.style.marginRight = '8px';
       img.style.objectFit = 'cover';
     }
 
@@ -93,41 +221,47 @@
     span.textContent = item.name || '';
 
     if(img) el.appendChild(img);
+    // when flag exists, ensure text does not expand the card: set maxWidth for span
+    if(item.flag){
+      const textMax = stdW - (CARD_PADDING_LR + FLAG_BLOCK_W + FLAG_TEXT_GAP);
+      span.style.maxWidth = (textMax > 20 ? textMax : 20) + 'px';
+    }
     el.appendChild(span);
 
-    // status badge area
-    const statusWrap = document.createElement('div');
-    statusWrap.className = 'ml-2 flex gap-1';
-    const advBtn = document.createElement('button'); advBtn.textContent = '晉級'; advBtn.title='設為晉級'; advBtn.className='text-xs px-2 py-1 rounded bg-white border border-slate-200 text-slate-700 hover:bg-slate-50';
-    const elimBtn = document.createElement('button'); elimBtn.textContent = '未晉級'; elimBtn.title='設為未晉級'; elimBtn.className='text-xs px-2 py-1 rounded bg-white border border-slate-200 text-slate-700 hover:bg-slate-50';
-    const clearBtn = document.createElement('button'); clearBtn.textContent = '清除'; clearBtn.title='清除狀態'; clearBtn.className='text-xs px-2 py-1 rounded bg-white border border-slate-200 text-slate-700 hover:bg-slate-50';
-    statusWrap.appendChild(advBtn); statusWrap.appendChild(elimBtn); statusWrap.appendChild(clearBtn);
-    el.appendChild(statusWrap);
-
-    // apply initial status style
-    applyStatusStyleToList(el, item.status || null);
-
-    advBtn.addEventListener('click',(e)=>{ e.stopPropagation(); item.status='adv'; applyStatusStyleToList(el,'adv'); });
-    elimBtn.addEventListener('click',(e)=>{ e.stopPropagation(); item.status='elim'; applyStatusStyleToList(el,'elim'); });
-    clearBtn.addEventListener('click',(e)=>{ e.stopPropagation(); item.status=null; applyStatusStyleToList(el,null); });
-
     el.addEventListener('dragstart', (ev)=>{
-      ev.dataTransfer.setData('application/json', JSON.stringify(item));
+      try{ ev.dataTransfer.setData('application/json', JSON.stringify(item)); }catch(e){}
+      try{ ev.dataTransfer.effectAllowed = 'copy'; }catch(e){}
+      console.log('list: dragstart', item && item.name);
     });
+
+    // 手機觸控處理：雙擊或長按以將卡片放在畫布中央
+    (function(){
+      let lastTap = 0, longPressTimer = null, moved = false;
+      const dblThreshold = 300; const longPressDelay = 500;
+      function placeCenter(){
+        try{ const rect = canvasEl.getBoundingClientRect(); addPlacedCard(item, rect.width/2, rect.height/2); }catch(e){ console.warn('placeCenter failed', e); }
+      }
+      el.addEventListener('touchstart', (ev)=>{ moved = false; if(longPressTimer) clearTimeout(longPressTimer); longPressTimer = setTimeout(()=>{ placeCenter(); longPressTimer = null; }, longPressDelay); }, {passive:true});
+      el.addEventListener('touchmove', (ev)=>{ moved = true; if(longPressTimer){ clearTimeout(longPressTimer); longPressTimer = null; } }, {passive:true});
+      el.addEventListener('touchend', (ev)=>{ if(longPressTimer){ clearTimeout(longPressTimer); longPressTimer = null; } const now = Date.now(); if(now - lastTap <= dblThreshold && !moved){ placeCenter(); lastTap = 0; } else lastTap = now; });
+    })();
 
     return el;
   }
 
-  // Unified drop handling on canvas: support both dragging list-cards (application/json)
-  // and dropping image files to set base image. Always preventDefault on dragover
-  // so the browser allows drop.
-  canvasEl.addEventListener('dragover', (e)=>{ e.preventDefault(); });
-  canvasEl.addEventListener('drop', (e)=>{
-    e.preventDefault();
+  // 統一的畫布放置處理：支援拖放清單卡片（application/json）與放入圖片檔以設定底圖。
+  // 在 dragover 時務必呼叫 preventDefault 以允許放置。
+  // 此處為較為穩健的拖放處理，並包含除錯用日誌。
+  canvasEl.addEventListener('dragenter', (e)=>{ e.preventDefault(); e.dataTransfer && (e.dataTransfer.dropEffect = 'copy'); });
+  canvasEl.addEventListener('dragover', (e)=>{ e.preventDefault(); e.dataTransfer && (e.dataTransfer.dropEffect = 'copy'); });
+  canvasEl.addEventListener('drop', async (e)=>{
+    e.preventDefault(); e.stopPropagation();
     try{
-      // If files present, treat as base image change (drop a file onto canvas)
+      console.log('canvas: drop event', e.dataTransfer && { items: e.dataTransfer.items && e.dataTransfer.items.length, files: e.dataTransfer.files && e.dataTransfer.files.length });
+      // 若有檔案，視為更換底圖（將檔案放到畫布上）
       if(e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length){
         const f = e.dataTransfer.files[0];
+        console.log('canvas: dropped file', f && f.type);
         if(f && f.type && f.type.startsWith('image/')){
           const url = URL.createObjectURL(f);
           baseImage.src = url;
@@ -135,19 +269,35 @@
         }
       }
 
-      // Otherwise, try to handle drag from list cards (application/json payload)
-      const data = e.dataTransfer.getData('application/json');
-      if(data){
-        const obj = JSON.parse(data);
-        const rect = canvasEl.getBoundingClientRect();
-        const x = e.clientX - rect.left;
-        const y = e.clientY - rect.top;
-        addPlacedCard(obj, x, y);
+      // 否則嘗試處理來自清單卡片的拖放（application/json 負載）
+      let data = e.dataTransfer && (e.dataTransfer.getData && e.dataTransfer.getData('application/json'));
+      if(!data && e.dataTransfer && e.dataTransfer.items){
+          // 嘗試從 DataTransferItemList 提取字串負載（對不同瀏覽器更穩健）
+        for(let i=0;i<e.dataTransfer.items.length;i++){
+          const it = e.dataTransfer.items[i];
+          if(it.kind === 'string'){
+            try{
+              data = await new Promise(res=> it.getAsString(str=>res(str)));
+              if(data) break;
+            }catch(_){ /* ignore */ }
+          }
+        }
       }
+      if(data){
+        try{
+          const obj = JSON.parse(data);
+          const rect = canvasEl.getBoundingClientRect();
+          const x = e.clientX - rect.left;
+          const y = e.clientY - rect.top;
+          addPlacedCard(obj, x, y);
+          return;
+        }catch(jsonErr){ console.warn('canvas: drop json parse failed', jsonErr); }
+      }
+      console.log('canvas: drop - nothing handled');
     }catch(err){ console.warn('canvas drop handling error', err); }
   });
 
-  // add placed card to layer; x,y in display pixels relative to canvasEl bounding box
+  // 將放置卡加入圖層；x,y 為相對於 canvasEl 外框的顯示像素座標
   function addPlacedCard(item, dispX, dispY){
     const rect = canvasEl.getBoundingClientRect();
     const scale = CANVAS_W / rect.width;
@@ -155,15 +305,37 @@
     const y = Math.round(dispY * scale);
 
     const el = document.createElement('div');
-    el.className = 'placed-card bg-white border border-slate-200 rounded-xl shadow-sm p-3 flex items-center gap-3';
-    el.style.left = (dispX)+'px';
-    el.style.top = (dispY)+'px';
-    el.style.transform = 'translate(-50%,-50%)';
-    el.style.position = 'absolute';
-    el.style.minWidth = '120px';
-    el.style.maxWidth = '220px';
+    // 若為手動文字卡，呈現為透明且置中（無外框）
+    if(item.manual){
+      // 僅保留最小的 `placed-card` 鉤子類別（負責定位）；避免加入任何 UI/卡片樣式類別
+      el.className = 'placed-card';
+      el.style.background = 'transparent';
+      el.style.border = 'none';
+      el.style.boxShadow = 'none';
+      el.style.padding = '0';
+      el.style.minWidth = '40px';
+      el.style.maxWidth = '400px';
+      el.style.display = 'inline-block';
+      el.style.textAlign = 'center';
+    } else {
+      el.className = 'placed-card bg-white border border-slate-200 rounded-xl shadow-sm p-3 flex items-center gap-3';
+      const placedStdW = computeCardWidthByChars(18);
+      el.style.minWidth = placedStdW + 'px';
+      el.style.maxWidth = placedStdW + 'px';
+    }
+   
+    el.style.left = dispX + 'px';
+    el.style.top  = dispY + 'px';
 
-    // placed card: if item.flag exists, show image; otherwise show text-only
+    if (!item.manual) {
+      el.style.transform = `translate(-50%, -50%) scale(${PLACED_CARD_SCALE})`;
+    } else {
+      el.style.transform = 'translate(-50%, -50%)';
+    }
+    el.style.transformOrigin = 'center center';
+    el.style.position = 'absolute';
+
+// 已放置的卡片：若 item.flag 存在則顯示圖片；否則僅顯示文字
     let img = null;
     if(item.flag){
       img = document.createElement('img');
@@ -171,19 +343,55 @@
       img.style.height = '30px';
       img.style.width = 'auto';
       img.style.objectFit = 'cover';
+      img.style.marginRight = '8px';
     }
 
     const span = document.createElement('div');
     span.className = 'font-semibold tracking-wide';
     span.textContent = item.name || '';
-    span.style.fontSize = '18px';
+    span.style.fontSize = item.manual ? '20px' : '18px';
     span.style.textShadow = '0 1px 2px rgba(0,0,0,0.35)';
 
+    if(item.manual){
+      span.style.fontWeight = '600';
+      span.style.textAlign = 'center';
+      span.style.whiteSpace = 'nowrap';
+      span.style.overflow = 'visible';
+      span.style.margin = '0';
+    }
+
     if(img) el.appendChild(img);
+    if(!item.manual && item.flag){
+      const textMax = (parseInt(el.style.minWidth||el.style.width||160) - (CARD_PADDING_LR + FLAG_BLOCK_W + FLAG_TEXT_GAP));
+      span.style.maxWidth = (textMax > 20 ? textMax : 20) + 'px';
+      span.style.overflow = 'hidden';
+      span.style.textOverflow = 'ellipsis';
+      span.style.whiteSpace = 'nowrap';
+    }
+    el.appendChild(span);
+    if(item.manual){
+      span.style.fontWeight = '600';
+      span.style.textAlign = 'center';
+      span.style.whiteSpace = 'nowrap';
+      span.style.overflow = 'visible';
+      span.style.margin = '0';
+    }
+
+    if(img) el.appendChild(img);
+    if(!item.manual && item.flag){
+      // apply ellipsis limits for placed flag cards
+      const textMax = (parseInt(el.style.minWidth||el.style.width||stdW) - (CARD_PADDING_LR + FLAG_BLOCK_W + FLAG_TEXT_GAP));
+      span.style.maxWidth = (textMax > 20 ? textMax : 20) + 'px';
+      span.style.overflow = 'hidden';
+      span.style.textOverflow = 'ellipsis';
+      span.style.whiteSpace = 'nowrap';
+    }
     el.appendChild(span);
 
     // reflect status visually on placed card
     el.dataset.status = item.status || '';
+    // mark manual on placed element for export logic
+    if(item.manual) el.dataset.manual = '1';
     applyStatusStyleToPlaced(el, item.status || null);
 
     // store model coordinates (in 1200x490 space)
@@ -199,9 +407,11 @@
     el.addEventListener('dblclick', ()=> el.remove());
 
     placedLayer.appendChild(el);
+    // 放置卡片後也隱藏提示文字
+    try{ hideCanvasHint(); }catch(e){}
   }
 
-  // Apply styles for list card
+  // 套用清單卡片的樣式
   function applyStatusStyleToList(el, status){
     const btns = el.querySelectorAll('button');
     if(status === 'adv'){
@@ -222,7 +432,7 @@
     }
   }
 
-  // Apply styles for placed card
+  // 套用已放置卡片的樣式
   function applyStatusStyleToPlaced(el, status){
     if(status === 'adv'){
       el.style.background = '#0aa35a';
@@ -319,8 +529,34 @@
       const placedEls = Array.from(placedLayer.children);
       for(const el of placedEls){
         const r = el.getBoundingClientRect();
-        const exportW = r.width * sx;
-        const exportH = r.height * sy;
+        // 從 transform（若有）計算元素的 CSS 縮放，以確保匯出結果與畫面一致
+        const csEl = window.getComputedStyle(el);
+        let cssScaleX = 1, cssScaleY = 1;
+        try{
+          const tr = csEl.transform || csEl.webkitTransform || csEl.msTransform;
+          if(tr && tr !== 'none'){
+            const m = tr.match(/matrix\(([^)]+)\)/);
+            if(m){
+              const vals = m[1].split(',').map(Number);
+              const a = vals[0], b = vals[1], c = vals[2], d = vals[3];
+              cssScaleX = Math.hypot(a, b) || 1;
+              cssScaleY = Math.hypot(c, d) || 1;
+            } else {
+              const m3 = tr.match(/matrix3d\(([^)]+)\)/);
+              if(m3){
+                const vals = m3[1].split(',').map(Number);
+                // matrix3d scaleX at [0], scaleY at [5]
+                cssScaleX = Math.hypot(vals[0], vals[1]) || 1;
+                cssScaleY = Math.hypot(vals[4], vals[5]) || 1;
+              }
+            }
+          }
+        }catch(e){ /* ignore */ }
+
+        const unscaledW = el.offsetWidth || r.width;
+        const unscaledH = el.offsetHeight || r.height;
+        const exportW = unscaledW * cssScaleX * sx;
+        const exportH = unscaledH * cssScaleY * sy;
         // 使用 element 的 model 座標作為中心點，避免 transform(-50%,-50%) 導致的位移差異
         const modelX = Number(el.dataset.modelX) || Math.round(((r.left - originLeft) + r.width/2) * sx);
         const modelY = Number(el.dataset.modelY) || Math.round(((r.top  - originTop)  + r.height/2) * sy);
@@ -329,34 +565,46 @@
         const exportX = exportCenterX - exportW/2;
         const exportY = exportCenterY - exportH/2;
 
-        // 先繪製卡片的外框（圓角背景 + 邊框），保持與畫面預覽一致
         const status = el.dataset.status || '';
-        let bgFill = 'rgba(255,255,255,0.9)';
-        if(status === 'adv') bgFill = '#0aa35a';
-        if(status === 'elim') bgFill = '#9fb6bf';
-        const strokeCol = 'rgba(0,0,0,0.06)';
-        const radius = Math.min(24, Math.max(8, exportH * 0.12));
-        // draw rounded rect at exportX,exportY,exportW,exportH
-        g.beginPath();
-        const x0 = exportX, y0 = exportY, w0 = exportW, h0 = exportH, r0 = radius;
-        g.moveTo(x0 + r0, y0);
-        g.arcTo(x0 + w0, y0, x0 + w0, y0 + h0, r0);
-        g.arcTo(x0 + w0, y0 + h0, x0, y0 + h0, r0);
-        g.arcTo(x0, y0 + h0, x0, y0, r0);
-        g.arcTo(x0, y0, x0 + w0, y0, r0);
-        g.closePath();
-        g.fillStyle = bgFill;
-        g.fill();
-        g.lineWidth = 1;
-        g.strokeStyle = strokeCol;
-        g.stroke();
+        const isManual = !!el.dataset.manual;
+
+        // 對於旗幟卡：繪製圓角半透明底、邊框與淡陰影
+        if(!isManual){
+          const radius = Math.min(24, Math.max(8, exportH * 0.12));
+          // choose background based on status
+          let bgFill = 'rgba(255,255,255,0.9)';
+          if(status === 'adv') bgFill = '#0aa35a';
+          if(status === 'elim') bgFill = '#9fb6bf';
+          const strokeCol = 'rgba(255,255,255,0.9)';
+
+          // 繪製帶陰影的圓角矩形
+          g.save();
+          g.beginPath();
+          const x0 = exportX, y0 = exportY, w0 = exportW, h0 = exportH, r0 = radius;
+          g.moveTo(x0 + r0, y0);
+          g.arcTo(x0 + w0, y0, x0 + w0, y0 + h0, r0);
+          g.arcTo(x0 + w0, y0 + h0, x0, y0 + h0, r0);
+          g.arcTo(x0, y0 + h0, x0, y0, r0);
+          g.arcTo(x0, y0, x0 + w0, y0, r0);
+          g.closePath();
+          g.shadowColor = 'rgba(0,0,0,0.12)';
+          g.shadowBlur = Math.max(4, exportH * 0.03);
+          g.shadowOffsetX = 0;
+          g.shadowOffsetY = 2;
+          g.fillStyle = bgFill;
+          g.fill();
+          g.shadowColor = 'transparent';
+          g.lineWidth = Math.max(2, exportH * 0.02);
+          g.strokeStyle = strokeCol;
+          g.stroke();
+          g.restore();
+        }
 
         // 若卡片內有圖片，繪製該圖片在相對位置與大小
         const imgEl = el.querySelector('img');
         if(imgEl && imgEl.src){
-          try{  
+          try{
             const childRect = imgEl.getBoundingClientRect();
-            // use offsets relative to card rect so they align with new exportX/exportY
             const childOffsetX = childRect.left - r.left;
             const childOffsetY = childRect.top - r.top;
             const childX = exportX + childOffsetX * sx;
@@ -368,27 +616,44 @@
           }catch(e){ console.warn('placed img draw failed', e); }
         }
 
-        // 繪製文字：使用卡片中文本節點的 rect 來定位，並以其計算文字大小
+        // 繪製文字：手動卡片僅繪製文字（置中），旗幟卡繪製在與畫面一致的位置
         const nameNode = el.querySelector('div');
         if(nameNode){
-          const nameRect = nameNode.getBoundingClientRect();
-          const nameOffsetX = nameRect.left - r.left;
-          const nameOffsetY = nameRect.top - r.top + nameRect.height/2; // middle
-          const textX = exportX + nameOffsetX * sx;
-          const textY = exportY + nameOffsetY * sy;
           const cs = window.getComputedStyle(nameNode);
           const baseFontSize = parseFloat(cs.fontSize) || 18;
           const drawFontSize = Math.max(10, Math.round(baseFontSize * ((sx+sy)/2)));
-          g.font = `${drawFontSize}px ${cs.fontFamily || 'sans-serif'}`;
-          g.fillStyle = (el.dataset.status==='adv') ? '#ffffff' : (el.dataset.status==='elim' ? '#0e7f86' : 'rgba(0,0,0,0.85)');
+          g.font = `600 ${drawFontSize}px ${cs.fontFamily || 'sans-serif'}`;
           g.textBaseline = 'middle';
-          g.shadowColor = 'rgba(0,0,0,0.35)';
+          g.shadowColor = 'rgba(0,0,0,0.28)';
           g.shadowOffsetX = 0; g.shadowOffsetY = 1; g.shadowBlur = 2;
-          g.fillText((nameNode.textContent||'').trim(), textX, textY);
-          g.shadowColor = 'transparent';
+          if(isManual){
+            g.textAlign = 'center';
+            const textX = exportX + exportW/2;
+            const textY = exportY + exportH/2;
+            g.fillStyle = 'rgba(0,0,0,0.85)';
+            g.fillText((nameNode.textContent||'').trim(), textX, textY);
+            g.textAlign = 'start';
+          } else {
+            const nameRect = nameNode.getBoundingClientRect();
+            const nameOffsetX = nameRect.left - r.left;
+            const nameOffsetY = nameRect.top - r.top + nameRect.height / 2; // middle
+
+            g.textAlign = 'center';
+
+            const textX = exportX + (nameOffsetX + nameRect.width / 2) * sx; // 文字區中心
+            const textY = exportY + nameOffsetY * sy;                        // 垂直位置跟畫面一致
+
+            g.fillStyle = (el.dataset.status==='adv') ? '#ffffff'
+                      : (el.dataset.status==='elim') ? '#0e7f86'
+                      : 'rgba(0,0,0,0.85)';
+
+            g.fillText((nameNode.textContent||'').trim(), textX, textY);
+            g.textAlign = 'start';
+          }
         }
       }
-      // helper: inline computed styles from source -> target (deep)
+
+      // 輔助：將來源元素的計算樣式內嵌到目標元素（遞迴）
       function inlineComputedStyles(srcRoot, dstRoot){
         const srcAll = [srcRoot].concat(Array.from(srcRoot.querySelectorAll('*')));
         const dstAll = [dstRoot].concat(Array.from(dstRoot.querySelectorAll('*')));
@@ -407,7 +672,7 @@
         }
       }
 
-      // helper: serialize element to image via SVG foreignObject
+      // 輔助：透過 SVG foreignObject 將元素序列化為影像
       async function domToRaster(el){
         const r = el.getBoundingClientRect();
         const w = Math.max(1, Math.round(r.width));
@@ -423,7 +688,6 @@
         return img;
       }
 
-      
       const url = offscreen.toDataURL('image/png');
       const a = document.createElement('a');
       a.href = url;
@@ -437,7 +701,7 @@
   });
 
   async function drawBaseToCtx(ctx){
-    // baseImage may be loaded from file input; ensure it's fully decoded
+    // baseImage 可能是由檔案輸入載入；請確保已完全解碼
     if(!baseImage.src) return;
     const img = await loadImage(baseImage.src);
     ctx.clearRect(0,0,CANVAS_W,CANVAS_H);
@@ -454,7 +718,7 @@
     });
   }
 
-  // Selection & fine-positioning
+  // 選取與微調位置
   let selectedEl = null;
   function setSelected(el){
     if(selectedEl) selectedEl.classList.remove('ring-2','ring-blue-500','ring-slate-300');
@@ -496,7 +760,7 @@
     updateDisplayPos(selectedEl);
   }
 
-  // wire up inputs and nudge buttons
+  // 綁定輸入欄位與微移按鈕
   posXInput.addEventListener('change', ()=>{
     if(!selectedEl) return; selectedEl.dataset.modelX = Number(posXInput.value)||0; updateDisplayPos(selectedEl);
   });
@@ -511,7 +775,7 @@
   nudgeLeft10.addEventListener('click', ()=> nudgeSelected(-10,0));
   nudgeRight10.addEventListener('click', ()=> nudgeSelected(10,0));
 
-  // keyboard arrows to nudge
+  // 使用鍵盤方向鍵進行微移
   document.addEventListener('keydown', (e)=>{
     if(!selectedEl) return;
     const step = e.shiftKey ? 10 : 1;
@@ -521,15 +785,15 @@
     if(e.key === 'ArrowDown'){ e.preventDefault(); nudgeSelected(0,step); }
   });
 
-  // deselect when clicking empty area on canvas
+  // 在畫布空白處點擊以取消選取
   canvasEl.addEventListener('click', (e)=>{
     if(e.target === canvasEl || e.target === baseImage) setSelected(null);
   });
 
-  // clear selection when clearing canvas
+  // 在清除畫布時一併取消選取
   clearBtn.addEventListener('click', ()=>{ placedLayer.innerHTML = ''; setSelected(null); });
 
-  // base image selection
+  // 底圖選擇
   chooseBaseBtn.addEventListener('click', ()=> baseFile.click());
   baseFile.addEventListener('change', (e)=>{
     const f = e.target.files && e.target.files[0];
@@ -538,24 +802,11 @@
     baseImage.src = url;
   });
 
-  // also support drag&drop on canvas to change base
-  canvasEl.addEventListener('dragover', (e)=> e.dataTransfer && e.dataTransfer.items && e.preventDefault());
-  canvasEl.addEventListener('drop', (e)=>{
-    // if files present, treat as base image change
-    if(e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length){
-      const f = e.dataTransfer.files[0];
-      if(f.type && f.type.startsWith('image/')){
-        e.preventDefault();
-        const url = URL.createObjectURL(f);
-        baseImage.src = url;
-        return;
-      }
-    }
-  });
+  // 注意：canvas 的放置處理已在前面統一實作
 
   clearBtn.addEventListener('click', ()=>{ placedLayer.innerHTML = ''; });
 
-  // fetch CSV and populate cards
+  // 取得 CSV 並產生卡片
   async function init(){
     try{
       const res = await fetch(CSV_URL);
@@ -568,7 +819,7 @@
         const name = row[nameField] || '';
         let flag = flagField? row[flagField] : '';
         if(flag) {
-          // if it's just a filename, prefix base
+          // 若只是檔名，則加上 base 前綴
           if(!flag.startsWith('http')) flag = FLAG_BASE + flag;
         } else {
           // fallback: try teamname.png
@@ -583,25 +834,34 @@
       renderCSVTable(parsed);
     }catch(e){
       console.error('CSV 載入失敗', e);
-      // still allow user to work with manual cards if needed
+      // 若有需要，仍允許使用者操作手動卡片
     }
   }
 
   // start
   init();
 
+  // 確保既有的已放置卡片使用正確的縮放轉換（以防 UI 保留了舊的元素）
+  function ensurePlacedScale(el){
+    if(!el) return;
+    if(el.dataset && el.dataset.manual) el.style.transform = 'translate(-50%, -50%)';
+    else el.style.transform = `translate(-50%, -50%) scale(${PLACED_CARD_SCALE})`;
+    el.style.transformOrigin = 'center center';
+  }
+  Array.from(placedLayer.children).forEach(ch => { try{ ensurePlacedScale(ch); }catch(e){} });
+
     // manual card creation (e.g., 日期卡)
     createManualBtn.addEventListener('click', ()=>{
       const txt = (manualText.value||'').trim();
       if(!txt) return;
-      const item = { name: txt, flag: '', status: null };
+      const item = { name: txt, flag: '', status: null, manual: true };
       const card = makeListCard(item);
       cardsRoot.appendChild(card);
       manualText.value = '';
     });
     manualText.addEventListener('keydown', (e)=>{ if(e.key === 'Enter'){ createManualBtn.click(); e.preventDefault(); } });
 
-    // status buttons for selected placed card
+    // 已選取之已放置卡片的狀態按鈕
     setAdvBtn.addEventListener('click', ()=>{
       if(!selectedEl) return; selectedEl.dataset.status = 'adv'; applyStatusStyleToPlaced(selectedEl,'adv');
     });
@@ -612,7 +872,7 @@
       if(!selectedEl) return; selectedEl.dataset.status = ''; applyStatusStyleToPlaced(selectedEl,null);
     });
 
-    // render CSV table for reference
+    // 繪製 CSV 表格作為參考
     function renderCSVTable(parsed){
       if(!csvTable) return;
       const headers = parsed.headers || [];
