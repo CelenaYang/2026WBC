@@ -30,7 +30,7 @@
       <!-- Canvas 區 -->
       <div id="canvas-root" class="">
         <div id="canvas" class="bg-white" style="width:1200px; height:490px;">
-          <img id="base-image" class="base-img" src="assets/base.png" alt="底圖" draggable="false" width="1200" height="490" />
+          <img id="base-image" class="base-img" alt="底圖" draggable="false" width="1200" height="490" />
           <div id="placed-layer"></div>
         </div>
       </div>
@@ -47,6 +47,28 @@
         <button id="download-btn" class="bg-slate-900 text-white hover:bg-slate-800 rounded-lg px-4 py-2">下載 PNG</button>
         <button id="clear-all" class="bg-rose-600 text-white hover:bg-rose-700 rounded-lg px-4 py-2">清除畫布</button>
       </div>
+
+      <!-- 底圖版本 -->
+      <div class="flex flex-wrap gap-2 items-center">
+        <div class="text-sm text-slate-700 w-20">底圖版本：</div>
+        <select id="base-preset" class="p-2 border rounded bg-white">
+          <option value="pc">PC（1200×490）</option>
+          <option value="msite">Msite（800×800）</option>
+        </select>
+
+        <!-- 仍保留你原本的上傳自訂底圖 -->
+        <button id="apply-preset" class="bg-white border border-slate-200 hover:bg-slate-50 rounded-lg px-4 py-2 text-sm">
+          套用版本
+        </button>
+      </div>
+
+      <!-- 隊旗卡縮放（全域） -->
+      <div class="flex flex-wrap gap-2 items-center">
+        <div class="text-sm text-slate-700 w-20">隊旗縮放：</div>
+        <input id="flag-scale" type="range" min="40" max="120" value="70" class="w-56" />
+        <div id="flag-scale-label" class="text-sm text-slate-700">70%</div>
+      </div>
+
 
       <!-- 精細位置調整控制面板 -->
       <div id="pos-controls" class="grid grid-cols-1 gap-2">

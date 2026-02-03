@@ -4,14 +4,32 @@
   const FLAG_BASE = 'https://raw.githubusercontent.com/CelenaYang/2026WBC/main/teamPIC/';
   const CANVAS_W = 1200;
   let CANVAS_H = 490; // 當載入不同長寬比的底圖時，可能會更新此值
+  let STAGE_W = CANVAS_W; // ← 真正使用的工作座標
+  let STAGE_H = CANVAS_H;
+
+  // 座標換算 helper：client -> 設計座標（model），以及 model -> 顯示座標
+function clientToModel(clientX, clientY){
+  const rect = canvasEl.getBoundingClientRect();
+  const x = Math.round((clientX - rect.left) * (STAGE_W / rect.width));
+  const y = Math.round((clientY - rect.top)  * (STAGE_H / rect.height));
+  return { x, y };
+}
+
+function modelToDisplay(modelX, modelY){
+  const rect = canvasEl.getBoundingClientRect();
+  const dispX = (Number(modelX) / STAGE_W) * rect.width;
+  const dispY = (Number(modelY) / STAGE_H) * rect.height;
+  return { dispX, dispY };
+}
+
 
   const baseImage = document.getElementById('base-image');
-  const chooseBaseBtn = document.getElementById('choose-base');
+  const chooseBaseBtn = document.getElementById('choose-base'); 
   const baseFile = document.getElementById('base-file');
   const cardsRoot = document.getElementById('cards');
   const placedLayer = document.getElementById('placed-layer');
   const canvasEl = document.getElementById('canvas');
-  const downloadBtn = document.getElementById('download-btn');
+  const downloadBtn = document.getElementById('download-btn'); 
   const clearBtn = document.getElementById('clear-all');
   const selectedInfo = document.getElementById('selected-info');
   const posXInput = document.getElementById('pos-x');
@@ -28,6 +46,11 @@
   const setElimBtn = document.getElementById('set-elim');
   const setClearBtn = document.getElementById('set-clear');
   const csvTable = document.getElementById('csv-table');
+  const basePresetSelect = document.getElementById('base-preset');  //0203新增
+  const flagScaleInput = document.getElementById('flag-scale');
+  const flagScaleLabel = document.getElementById('flag-scale-label');
+
+
 
   // 在畫布上方加入提示 overlay（DOM 元素），不會影響互動
   (function createCanvasHint(){
@@ -73,7 +96,7 @@
   const FLAG_BLOCK_W = 36; // 預留給旗幟圖示的區塊寬度 (px)
   const FLAG_TEXT_GAP = 10; // 圖片與文字間隔 (px)
   // 放置在舞台上的旗幟卡固定縮放比例（非手動文字卡）
-  const PLACED_CARD_SCALE = 0.7;
+  let PLACED_CARD_SCALE = 0.8;
   // canvas 上下文供 measureText 使用
   const _textMeasureCanvas = (()=>{ const c = document.createElement('canvas'); return c.getContext('2d'); })();
   // 計算以「4字基準」的卡片固定寬度 — 傳入 fontSize 即可（text 參數不使用）
@@ -105,6 +128,29 @@
       });
     }catch(e){ console.warn('updateCanvasSizeFromBase failed', e); }
   }
+
+  // 注入少量 CSS 以修正控制器手機版排版（不改動現有功能）
+  (function injectResponsiveControlsCSS(){
+    try{
+      const css = `
+      @media (max-width:640px){
+        /* 容器避免寬度溢出 */
+        .max-w-5xl { max-width:100%; }
+        /* 控制器內的定位區改為兩欄網格，按鈕可換行 */
+        #pos-controls{ display:grid; grid-template-columns: 1fr 1fr; gap:8px; align-items:center; }
+        #pos-controls .flex{ grid-column: 1 / -1; display:flex; gap:8px; flex-wrap:wrap; }
+        #pos-controls input{ width:100%; min-width:0; }
+        .flex.items-center.gap-2 > .text-sm{ flex:0 0 auto; }
+        /* 狀態按鈕列：允許換行並避免單一按鈕撐開整行 */
+        .flex.gap-2.items-center{ flex-wrap:wrap; gap:8px; }
+        .flex.gap-2.items-center > .flex.items-center.gap-2{ flex-wrap:wrap; gap:6px; }
+        .flex.gap-2.items-center > .flex.items-center.gap-2 > button{ flex:0 0 auto; }
+      }
+      `;
+      const s = document.createElement('style'); s.type = 'text/css'; s.appendChild(document.createTextNode(css));
+      document.head.appendChild(s);
+    }catch(e){ /* ignore */ }
+  })();
 
   // 監聽 base image 載入事件
   baseImage.addEventListener('load', ()=> updateCanvasSizeFromBase(baseImage));
@@ -286,10 +332,11 @@
       if(data){
         try{
           const obj = JSON.parse(data);
-          const rect = canvasEl.getBoundingClientRect();
-          const x = e.clientX - rect.left;
-          const y = e.clientY - rect.top;
-          addPlacedCard(obj, x, y);
+          // 以 client 座標轉為設計座標，並以顯示像素傳入 addPlacedCard
+          const model = clientToModel(e.clientX, e.clientY);
+          // convert model back to display so addPlacedCard receives display coords
+          const disp = modelToDisplay(model.x, model.y);
+          addPlacedCard(obj, disp.dispX, disp.dispY);
           return;
         }catch(jsonErr){ console.warn('canvas: drop json parse failed', jsonErr); }
       }
@@ -299,10 +346,11 @@
 
   // 將放置卡加入圖層；x,y 為相對於 canvasEl 外框的顯示像素座標
   function addPlacedCard(item, dispX, dispY){
+    // dispX/dispY 為畫面顯示像素（client 參考系），轉換為設計座標存入 dataset
     const rect = canvasEl.getBoundingClientRect();
-    const scale = CANVAS_W / rect.width;
-    const x = Math.round(dispX * scale);
-    const y = Math.round(dispY * scale);
+    const modelX = Math.round(dispX * (STAGE_W / rect.width));
+    const modelY = Math.round(dispY * (STAGE_H / rect.height));
+
 
     const el = document.createElement('div');
     // 若為手動文字卡，呈現為透明且置中（無外框）
@@ -324,14 +372,19 @@
       el.style.maxWidth = placedStdW + 'px';
     }
    
+    // 直接以顯示座標設定位置（元素會用 translate(-50%,-50%) 置中）
     el.style.left = dispX + 'px';
     el.style.top  = dispY + 'px';
 
-    if (!item.manual) {
-      el.style.transform = `translate(-50%, -50%) scale(${PLACED_CARD_SCALE})`;
-    } else {
-      el.style.transform = 'translate(-50%, -50%)';
-    }
+    // apply display-aware scaling so cards visually follow the stage zoom
+    try{
+      const displayScale = rect.width / CANVAS_W;
+      if (!item.manual) {
+        el.style.transform = `translate(-50%, -50%) scale(${PLACED_CARD_SCALE * displayScale})`;
+      } else {
+        el.style.transform = 'translate(-50%, -50%)';
+      }
+    }catch(e){ if(!item.manual) el.style.transform = `translate(-50%, -50%) scale(${PLACED_CARD_SCALE})`; else el.style.transform = 'translate(-50%, -50%)'; }
     el.style.transformOrigin = 'center center';
     el.style.position = 'absolute';
 
@@ -395,8 +448,9 @@
     applyStatusStyleToPlaced(el, item.status || null);
 
     // store model coordinates (in 1200x490 space)
-    el.dataset.modelX = x;
-    el.dataset.modelY = y;
+    el.dataset.modelX = modelX;
+    el.dataset.modelY = modelY;
+    const scale = CANVAS_W / rect.width;
     el.dataset.width = Math.round((el.getBoundingClientRect().width||160)*scale);
 
     // enable pointer dragging
@@ -406,9 +460,14 @@
     el.tabIndex = 0;
     el.addEventListener('dblclick', ()=> el.remove());
 
-    placedLayer.appendChild(el);
-    // 放置卡片後也隱藏提示文字
-    try{ hideCanvasHint(); }catch(e){}
+placedLayer.appendChild(el);
+
+// 新卡片一出生就套用目前的縮放比例
+try { ensurePlacedScale(el); } catch (e) {}
+
+// 放置卡片後也隱藏提示文字
+try { hideCanvasHint(); } catch (e) {}
+
   }
 
   // 套用清單卡片的樣式
@@ -451,38 +510,64 @@
 
   let dragEl = null;
   let startX=0, startY=0, origLeft=0, origTop=0;
+  let dragStartPointer = null; // {x,y} model
+  let dragStartEl = null;      // {x,y} model
+
   function onPointerDown(e){
     e.preventDefault();
     dragEl = e.currentTarget;
+
+    dragStartPointer = clientToModel(e.clientX, e.clientY);
+    dragStartEl = {
+      x: Number(dragEl.dataset.modelX || 0),
+      y: Number(dragEl.dataset.modelY || 0),
+    };
+
     dragEl.setPointerCapture(e.pointerId);
     const rect = canvasEl.getBoundingClientRect();
     startX = e.clientX;
     startY = e.clientY;
     const elRect = dragEl.getBoundingClientRect();
+    // element center in display coords (relative to canvas left/top)
     origLeft = elRect.left - rect.left + elRect.width/2; // center-based because of translate(-50%,-50%)
     origTop = elRect.top - rect.top + elRect.height/2;
+    // pointer -> center offset (display pixels)
+   //0203待刪掉 const pointerToCenterX = origLeft - startX;
+   //0203待刪掉 const pointerToCenterY = origTop - startY;
 
-    function move(ev){
-      if(!dragEl) return;
-      const dx = ev.clientX - startX;
-      const dy = ev.clientY - startY;
-      const newX = origLeft + dx;
-      const newY = origTop + dy;
-      dragEl.style.left = newX + 'px';
-      dragEl.style.top = newY + 'px';
-      // update model coords
-      const rect = canvasEl.getBoundingClientRect();
-      const scale = CANVAS_W / rect.width;
-      dragEl.dataset.modelX = Math.round(newX * scale);
-      dragEl.dataset.modelY = Math.round(newY * scale);
-    }
+function move(ev){
+  if(!dragEl) return;
+
+  const p = clientToModel(ev.clientX, ev.clientY);
+  const dx = p.x - dragStartPointer.x;
+  const dy = p.y - dragStartPointer.y;
+
+  const nx = dragStartEl.x + dx;
+  const ny = dragStartEl.y + dy;
+
+  dragEl.dataset.modelX = String(nx);
+  dragEl.dataset.modelY = String(ny);
+
+  updateDisplayPos(dragEl);
+
+  // 你原本的縮放（可留）
+  try{
+    const displayScale = canvasEl.getBoundingClientRect().width / STAGE_W;
+    if(dragEl.dataset && dragEl.dataset.manual) dragEl.style.transform = 'translate(-50%, -50%)';
+    else dragEl.style.transform = `translate(-50%, -50%) scale(${PLACED_CARD_SCALE * displayScale})`;
+  }catch(e){}
+}
+
 
     function up(ev){
       if(!dragEl) return;
-      dragEl.releasePointerCapture(e.pointerId);
+      dragEl.releasePointerCapture(ev.pointerId);
       document.removeEventListener('pointermove', move);
       document.removeEventListener('pointerup', up);
       dragEl = null;
+      dragStartPointer = null;
+      dragStartEl = null;
+
     }
 
     document.addEventListener('pointermove', move);
@@ -492,7 +577,6 @@
   downloadBtn.addEventListener('click', async ()=>{
     try{
       console.log('export: start');
-      const STAGE_W = CANVAS_W, STAGE_H = CANVAS_H;
 
       // 等字型就緒
       if(document.fonts && document.fonts.ready) try{ await document.fonts.ready; }catch(e){}
@@ -560,8 +644,8 @@
         // 使用 element 的 model 座標作為中心點，避免 transform(-50%,-50%) 導致的位移差異
         const modelX = Number(el.dataset.modelX) || Math.round(((r.left - originLeft) + r.width/2) * sx);
         const modelY = Number(el.dataset.modelY) || Math.round(((r.top  - originTop)  + r.height/2) * sy);
-        const exportCenterX = modelX * (STAGE_W / CANVAS_W);
-        const exportCenterY = modelY * (STAGE_H / CANVAS_H);
+        const exportCenterX = modelX;
+        const exportCenterY = modelY;
         const exportX = exportCenterX - exportW/2;
         const exportY = exportCenterY - exportH/2;
 
@@ -621,7 +705,8 @@
         if(nameNode){
           const cs = window.getComputedStyle(nameNode);
           const baseFontSize = parseFloat(cs.fontSize) || 18;
-          const drawFontSize = Math.max(10, Math.round(baseFontSize * ((sx+sy)/2)));
+          // 考慮元素的 CSS transform 縮放（cssScaleX）與舞台顯示->設計縮放 (sx,sy)
+          const drawFontSize = Math.max(10, Math.round(baseFontSize * (cssScaleX || 1) * ((sx+sy)/2)));
           g.font = `600 ${drawFontSize}px ${cs.fontFamily || 'sans-serif'}`;
           g.textBaseline = 'middle';
           g.shadowColor = 'rgba(0,0,0,0.28)';
@@ -700,13 +785,15 @@
     }
   });
 
-  async function drawBaseToCtx(ctx){
-    // baseImage 可能是由檔案輸入載入；請確保已完全解碼
-    if(!baseImage.src) return;
-    const img = await loadImage(baseImage.src);
-    ctx.clearRect(0,0,CANVAS_W,CANVAS_H);
-    ctx.drawImage(img, 0, 0, CANVAS_W, CANVAS_H);
-  }
+async function drawBaseToCtx(ctx){
+  if(!baseImage.src) return;
+  const img = await loadImage(baseImage.src);
+  const w = ctx.canvas.width;
+  const h = ctx.canvas.height;
+  ctx.clearRect(0, 0, w, h);
+  ctx.drawImage(img, 0, 0, w, h);
+}
+
 
   function loadImage(src){
     return new Promise((resolve, reject)=>{
@@ -741,18 +828,20 @@
 
   function updateDisplayPos(el){
     const rect = canvasEl.getBoundingClientRect();
-    const dispX = (Number(el.dataset.modelX) / CANVAS_W) * rect.width;
-    const dispY = (Number(el.dataset.modelY) / CANVAS_H) * rect.height;
+    const dispX = (Number(el.dataset.modelX) / STAGE_W) * rect.width;
+    const dispY = (Number(el.dataset.modelY) / STAGE_H) * rect.height;
     el.style.left = dispX + 'px';
     el.style.top = dispY + 'px';
+    // apply display-aware scaling so cards follow stage zoom on mobile
+    try{ ensurePlacedScale(el); }catch(e){}
   }
 
   function nudgeSelected(dx, dy){
     if(!selectedEl) return;
     let nx = Number(selectedEl.dataset.modelX)||0;
     let ny = Number(selectedEl.dataset.modelY)||0;
-    nx = Math.max(0, Math.min(CANVAS_W, nx + dx));
-    ny = Math.max(0, Math.min(CANVAS_H, ny + dy));
+    nx = Math.max(0, Math.min(STAGE_W, nx + dx));
+    ny = Math.max(0, Math.min(STAGE_H, ny + dy));
     selectedEl.dataset.modelX = nx;
     selectedEl.dataset.modelY = ny;
     posXInput.value = nx;
@@ -792,6 +881,39 @@
 
   // 在清除畫布時一併取消選取
   clearBtn.addEventListener('click', ()=>{ placedLayer.innerHTML = ''; setSelected(null); });
+
+// 底圖尺寸版本（只 log，不影響功能）
+if (basePresetSelect) {
+  basePresetSelect.addEventListener('change', () => {
+    if (basePresetSelect.value === 'pc') {
+      STAGE_W = 1200; STAGE_H = 490;
+    } else {
+      STAGE_W = 800;  STAGE_H = 800;
+    }
+
+    // 重算所有卡片顯示位置
+    Array.from(placedLayer.children).forEach(updateDisplayPos);
+  });
+}
+
+if (flagScaleInput) {
+  const applyScaleToAll = () => {
+    const pct = Number(flagScaleInput.value || 70);
+    PLACED_CARD_SCALE = pct / 100;
+
+    if (flagScaleLabel) flagScaleLabel.textContent = `${pct}%`;
+
+    Array.from(placedLayer.children).forEach(el => {
+      try { ensurePlacedScale(el); } catch (e) {}
+    });
+  };
+
+  flagScaleInput.addEventListener('input', applyScaleToAll);
+  flagScaleInput.addEventListener('change', applyScaleToAll);
+
+  applyScaleToAll(); // 初始化同步一次
+}
+
 
   // 底圖選擇
   chooseBaseBtn.addEventListener('click', ()=> baseFile.click());
@@ -842,12 +964,19 @@
   init();
 
   // 確保既有的已放置卡片使用正確的縮放轉換（以防 UI 保留了舊的元素）
-  function ensurePlacedScale(el){
-    if(!el) return;
-    if(el.dataset && el.dataset.manual) el.style.transform = 'translate(-50%, -50%)';
-    else el.style.transform = `translate(-50%, -50%) scale(${PLACED_CARD_SCALE})`;
-    el.style.transformOrigin = 'center center';
+function ensurePlacedScale(el){
+  const displayScale = canvasEl.getBoundingClientRect().width / STAGE_W;
+
+  if (el.dataset && el.dataset.manual) {
+    el.style.transform = 'translate(-50%, -50%)';
+  } else {
+    el.style.transform = `translate(-50%, -50%) scale(${PLACED_CARD_SCALE * displayScale})`;
   }
+
+  el.style.transformOrigin = 'center center';
+}
+
+
   Array.from(placedLayer.children).forEach(ch => { try{ ensurePlacedScale(ch); }catch(e){} });
 
     // manual card creation (e.g., 日期卡)
