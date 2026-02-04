@@ -66,7 +66,27 @@
     .speed-btn.text-rose-600{
       border-color:#fb7185;
     }
+    
+    /* 手機版：只固定「縮放＋方向鍵」那塊 */
+      @media (max-width: 768px){
+        .mobile-float-controls{
+          position: sticky;
+          bottom: 12px;
+          z-index: 50;
+          background: rgba(255,255,255,.95);
+          backdrop-filter: blur(6px);
+          -webkit-backdrop-filter: blur(6px);
+          padding: 10px;
+          border-radius: 14px;
+          box-shadow: 0 -6px 18px rgba(0,0,0,.12);
+          border: 1px solid rgba(15,23,42,.10);
+        }
 
+        /* 讓手指不容易誤觸到下面的內容 */
+        .mobile-float-controls *{
+          touch-action: manipulation;
+        }
+      }
   </style>
 </head>
 <body class="bg-slate-50 text-slate-800 p-6">
@@ -86,42 +106,43 @@
     <div class="bg-white border border-slate-200 rounded-xl shadow-sm p-4 space-y-4">
       <h2 class="text-lg font-semibold text-slate-900 mb-3">控制器區塊</h2>
 
+      <div class="mobile-float-controls">
       <!-- (2) 隊旗縮放 + 方向移動：放到第一層 -->
-      <div class="space-y-3">
-        <!-- 隊旗縮放 -->
-        <div class="flex flex-wrap gap-2 items-center">
-          <div class="text-sm text-slate-700 w-20 shrink-0">隊旗縮放：</div>
-          <input id="flag-scale" type="range" min="40" max="120" value="80" class="w-56 max-w-full" />
-          <div id="flag-scale-label" class="text-sm text-slate-700 whitespace-nowrap">80%</div>
-        </div>
-
-        <!-- 方向鍵 + 倍率 -->
-        <div class="ml-2 flex items-center gap-3 select-none touch-none">
-          <div class="grid grid-cols-3 grid-rows-2 gap-1 items-center">
-            <div></div>
-            <button id="pad-up" class="dir-btn">
-              <svg viewBox="0 0 24 24" class="dir-icon"><path d="M12 5l7 7H5z"/></svg>
-            </button>
-            <div></div>
-
-            <button id="pad-left" class="dir-btn">
-              <svg viewBox="0 0 24 24" class="dir-icon"><path d="M5 12l7-7v14z"/></svg>
-            </button>
-            <button id="pad-down" class="dir-btn">
-              <svg viewBox="0 0 24 24" class="dir-icon"><path d="M12 19l-7-7h14z"/></svg>
-            </button>
-            <button id="pad-right" class="dir-btn">
-              <svg viewBox="0 0 24 24" class="dir-icon"><path d="M19 12l-7 7V5z"/></svg>
-            </button>
+        <div class="space-y-3">
+          <!-- 隊旗縮放 -->
+          <div class="flex flex-wrap gap-2 items-center">
+            <div class="text-sm text-slate-700 w-20 shrink-0">隊旗縮放：</div>
+            <input id="flag-scale" type="range" min="40" max="120" value="80" class="w-56 max-w-full" />
+            <div id="flag-scale-label" class="text-sm text-slate-700 whitespace-nowrap">80%</div>
           </div>
 
-          <div class="flex flex-col gap-1">
-            <button id="pad-step" class="speed-btn whitespace-nowrap">×1</button>
-            <button id="pad-step10" class="speed-btn whitespace-nowrap">×10</button>
+          <!-- 方向鍵 + 倍率 -->
+          <div class="ml-2 flex items-center gap-3 select-none touch-none">
+            <div class="grid grid-cols-3 grid-rows-2 gap-1 items-center">
+              <div></div>
+              <button id="pad-up" class="dir-btn">
+                <svg viewBox="0 0 24 24" class="dir-icon"><path d="M12 5l7 7H5z"/></svg>
+              </button>
+              <div></div>
+
+              <button id="pad-left" class="dir-btn">
+                <svg viewBox="0 0 24 24" class="dir-icon"><path d="M5 12l7-7v14z"/></svg>
+              </button>
+              <button id="pad-down" class="dir-btn">
+                <svg viewBox="0 0 24 24" class="dir-icon"><path d="M12 19l-7-7h14z"/></svg>
+              </button>
+              <button id="pad-right" class="dir-btn">
+                <svg viewBox="0 0 24 24" class="dir-icon"><path d="M19 12l-7 7V5z"/></svg>
+              </button>
+            </div>
+
+            <div class="flex flex-col gap-1">
+              <button id="pad-step" class="speed-btn whitespace-nowrap">×1</button>
+              <button id="pad-step10" class="speed-btn whitespace-nowrap">×10</button>
+            </div>
           </div>
         </div>
       </div>
-
       <hr class="my-3 border-slate-200"/>
 
       <!-- (3) 底圖版本 + 套用 + 切換狀態：同一排（窄螢幕改橫向滑動，不換行） -->
