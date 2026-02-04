@@ -82,90 +82,93 @@
       </div>
     </div>
 
-    <!-- Controls card -->
+    <!-- 控制器區塊，底圖與按鈕 -->
     <div class="bg-white border border-slate-200 rounded-xl shadow-sm p-4 space-y-4">
       <h2 class="text-lg font-semibold text-slate-900 mb-3">控制器區塊</h2>
-      <div class="flex gap-2">
-        <label class="flex-1">
-          <input id="base-file" type="file" accept="image/*" class="hidden" />
-          <button id="choose-base" class="w-full bg-slate-900 text-white hover:bg-slate-800 rounded-lg px-4 py-2">選擇／拖曳到底圖區</button>
-        </label>
-        <button id="download-btn" class="bg-slate-900 text-white hover:bg-slate-800 rounded-lg px-4 py-2">下載 PNG</button>
-        <button id="clear-all" class="bg-rose-600 text-white hover:bg-rose-700 rounded-lg px-4 py-2">清除畫布</button>
+
+      <!-- (2) 隊旗縮放 + 方向移動：放到第一層 -->
+      <div class="space-y-3">
+        <!-- 隊旗縮放 -->
+        <div class="flex flex-wrap gap-2 items-center">
+          <div class="text-sm text-slate-700 w-20 shrink-0">隊旗縮放：</div>
+          <input id="flag-scale" type="range" min="40" max="120" value="80" class="w-56 max-w-full" />
+          <div id="flag-scale-label" class="text-sm text-slate-700 whitespace-nowrap">80%</div>
+        </div>
+
+        <!-- 方向鍵 + 倍率 -->
+        <div class="ml-2 flex items-center gap-3 select-none touch-none">
+          <div class="grid grid-cols-3 grid-rows-2 gap-1 items-center">
+            <div></div>
+            <button id="pad-up" class="dir-btn">
+              <svg viewBox="0 0 24 24" class="dir-icon"><path d="M12 5l7 7H5z"/></svg>
+            </button>
+            <div></div>
+
+            <button id="pad-left" class="dir-btn">
+              <svg viewBox="0 0 24 24" class="dir-icon"><path d="M5 12l7-7v14z"/></svg>
+            </button>
+            <button id="pad-down" class="dir-btn">
+              <svg viewBox="0 0 24 24" class="dir-icon"><path d="M12 19l-7-7h14z"/></svg>
+            </button>
+            <button id="pad-right" class="dir-btn">
+              <svg viewBox="0 0 24 24" class="dir-icon"><path d="M19 12l-7 7V5z"/></svg>
+            </button>
+          </div>
+
+          <div class="flex flex-col gap-1">
+            <button id="pad-step" class="speed-btn whitespace-nowrap">×1</button>
+            <button id="pad-step10" class="speed-btn whitespace-nowrap">×10</button>
+          </div>
+        </div>
       </div>
 
-      <!-- 底圖版本 -->
-      <div class="flex flex-wrap gap-2 items-center">
-        <div class="text-sm text-slate-700 w-20">底圖版本：</div>
-        <select id="base-preset" class="p-2 border rounded bg-white">
+      <hr class="my-3 border-slate-200"/>
+
+      <!-- (3) 底圖版本 + 套用 + 切換狀態：同一排（窄螢幕改橫向滑動，不換行） -->
+      <div class="flex flex-nowrap gap-2 items-center overflow-x-auto pb-1">
+        <div class="text-sm text-slate-700 whitespace-nowrap shrink-0">底圖版本：</div>
+
+        <select id="base-preset" class="p-2 border rounded bg-white whitespace-nowrap shrink-0">
           <option value="pc">PC（1200×490）</option>
           <option value="msite">Msite（800×800）</option>
         </select>
 
-        <!-- 仍保留你原本的上傳自訂底圖 -->
-        <button id="apply-preset" class="bg-white border border-slate-200 hover:bg-slate-50 rounded-lg px-4 py-2 text-sm">
+        <button id="apply-preset" class="bg-white border border-slate-200 hover:bg-slate-50 rounded-lg px-4 py-2 text-sm whitespace-nowrap shrink-0">
           套用版本
         </button>
+
+        <div class="text-sm text-slate-700 whitespace-nowrap shrink-0">切換狀態：</div>
+
+        <button id="set-adv" class="bg-white border border-slate-200 hover:bg-slate-50 rounded-lg px-4 py-2 text-sm whitespace-nowrap shrink-0">
+          設定晉級
+        </button>
+        <button id="set-elim" class="bg-white border border-slate-200 hover:bg-slate-50 rounded-lg px-4 py-2 text-sm whitespace-nowrap shrink-0">
+          設定未晉級
+        </button>
+        <button id="set-clear" class="bg-white border border-slate-200 hover:bg-slate-50 rounded-lg px-4 py-2 text-sm whitespace-nowrap shrink-0">
+          清除狀態
+        </button>
       </div>
 
-      <!-- 隊旗卡縮放（全域） -->
-      <div class="flex flex-wrap gap-2 items-center">
-        <div class="text-sm text-slate-700 w-20">隊旗縮放：</div>
-        <input id="flag-scale" type="range" min="40" max="120" value="80" class="w-56" />
-        <div id="flag-scale-label" class="text-sm text-slate-700">80%</div>
-      </div>
+      <hr class="my-3 border-slate-200"/>
 
+      <!-- (1) 選擇/拖曳底圖：下載、清除放在此區塊最下面 -->
+      <div class="space-y-2">
+        <label class="block">
+          <input id="base-file" type="file" accept="image/*" class="hidden" />
+          <button id="choose-base" class="w-full bg-slate-900 text-white hover:bg-slate-800 rounded-lg px-4 py-2 whitespace-nowrap">
+            選擇／拖曳到底圖區
+          </button>
+        </label>
 
-      <!-- 精細位置調整控制面板 -->
-      <div class="ml-2 flex items-center gap-3 select-none touch-none">
-      <!-- 方向鍵（反 T） -->
-      <div class="grid grid-cols-3 grid-rows-2 gap-1 items-center">
-
-        <!-- 上：空 / 上 / 空 -->
-        <div></div>
-        <button id="pad-up" class="dir-btn">
-          <svg viewBox="0 0 24 24" class="dir-icon">
-            <path d="M12 5l7 7H5z"/>
-          </svg>
-        </button>
-        <div></div>
-
-        <!-- 下排：左 / 下 / 右 -->
-        <button id="pad-left" class="dir-btn">
-          <svg viewBox="0 0 24 24" class="dir-icon">
-            <path d="M5 12l7-7v14z"/>
-          </svg>
-        </button>
-
-        <button id="pad-down" class="dir-btn">
-          <svg viewBox="0 0 24 24" class="dir-icon">
-            <path d="M12 19l-7-7h14z"/>
-          </svg>
-        </button>
-
-        <button id="pad-right" class="dir-btn">
-          <svg viewBox="0 0 24 24" class="dir-icon">
-            <path d="M19 12l-7 7V5z"/>
-          </svg>
-        </button>
-
-      </div>
-        <!-- 速度切換 -->
-        <div class="flex flex-col gap-1">
-          <button id="pad-step" class="speed-btn">×1</button>
-          <button id="pad-step10" class="speed-btn">×10</button>
-        </div>
-
-      </div>
-
-
-      <!-- 狀態按鈕：對已選卡片設定晉級/未晉級 -->
-      <div class="flex gap-2 items-center">
-        <div class="text-sm text-slate-700 w-20">切換狀態：</div>
-        <div class="flex flex-wrap items-center gap-2">
-          <button id="set-adv" class="bg-white border border-slate-200 hover:bg-slate-50 rounded-lg px-4 py-2 text-sm">設定晉級</button>
-          <button id="set-elim" class="bg-white border border-slate-200 hover:bg-slate-50 rounded-lg px-4 py-2 text-sm">設定未晉級</button>
-          <button id="set-clear" class="bg-white border border-slate-200 hover:bg-slate-50 rounded-lg px-4 py-2 text-sm">清除狀態</button>
+        <!-- 下載 / 清除：置底 -->
+        <div class="grid grid-cols-2 gap-2">
+          <button id="download-btn" class="bg-slate-900 text-white hover:bg-slate-800 rounded-lg px-4 py-2 whitespace-nowrap">
+            下載 PNG
+          </button>
+          <button id="clear-all" class="bg-rose-600 text-white hover:bg-rose-700 rounded-lg px-4 py-2 whitespace-nowrap">
+            清除畫布
+          </button>
         </div>
       </div>
     </div>
