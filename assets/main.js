@@ -34,12 +34,6 @@ function modelToDisplay(modelX, modelY){
   const selectedInfo = document.getElementById('selected-info');
   const posXInput = document.getElementById('pos-x');
   const posYInput = document.getElementById('pos-y');
-  const nudgeLeft = document.getElementById('nudge-left');
-  const nudgeRight = document.getElementById('nudge-right');
-  const nudgeUp = document.getElementById('nudge-up');
-  const nudgeDown = document.getElementById('nudge-down');
-  const nudgeLeft10 = document.getElementById('nudge-left10');
-  const nudgeRight10 = document.getElementById('nudge-right10');
   const manualText = document.getElementById('manual-text');
   const createManualBtn = document.getElementById('create-manual');
   const setAdvBtn = document.getElementById('set-adv');
@@ -810,21 +804,28 @@ async function drawBaseToCtx(ctx){
   function setSelected(el){
     if(selectedEl) selectedEl.classList.remove('ring-2','ring-blue-500','ring-slate-300');
     selectedEl = el;
+
     if(el){
       el.classList.add('ring-2','ring-slate-300');
-      const name = el.querySelector('div')? el.querySelector('div').textContent : '';
-      selectedInfo.textContent = name || '--';
-      posXInput.value = Number(el.dataset.modelX) || 0;
-      posYInput.value = Number(el.dataset.modelY) || 0;
+
+      const name = el.querySelector('div') ? el.querySelector('div').textContent : '';
+
+      // ✅ 防呆：元素可能不存在時不要炸
+      if (selectedInfo) selectedInfo.textContent = name || '--';
+      if (posXInput)    posXInput.value = Number(el.dataset.modelX) || 0;
+      if (posYInput)    posYInput.value = Number(el.dataset.modelY) || 0;
+
       // reflect current status in selected info area via simple marker
       const curStatus = el.dataset.status || null;
       // no extra visual here; status buttons below will apply
     } else {
-      selectedInfo.textContent = '--';
-      posXInput.value = '';
-      posYInput.value = '';
+      // ✅ 防呆：元素可能不存在時不要炸
+      if (selectedInfo) selectedInfo.textContent = '--';
+      if (posXInput)    posXInput.value = '';
+      if (posYInput)    posYInput.value = '';
     }
   }
+
 
   function updateDisplayPos(el){
     const rect = canvasEl.getBoundingClientRect();
@@ -844,25 +845,122 @@ async function drawBaseToCtx(ctx){
     ny = Math.max(0, Math.min(STAGE_H, ny + dy));
     selectedEl.dataset.modelX = nx;
     selectedEl.dataset.modelY = ny;
-    posXInput.value = nx;
-    posYInput.value = ny;
+    if (posXInput) posXInput.value = nx;
+    if (posYInput) posYInput.value = ny;
     updateDisplayPos(selectedEl);
   }
 
-  // 綁定輸入欄位與微移按鈕
-  posXInput.addEventListener('change', ()=>{
-    if(!selectedEl) return; selectedEl.dataset.modelX = Number(posXInput.value)||0; updateDisplayPos(selectedEl);
-  });
-  posYInput.addEventListener('change', ()=>{
-    if(!selectedEl) return; selectedEl.dataset.modelY = Number(posYInput.value)||0; updateDisplayPos(selectedEl);
-  });
+  // ===== 方向鍵 Pad：長按連續位移 =====
+const padLeft   = document.getElementById('pad-left');
+const padRight  = document.getElementById('pad-right');
+const padUp     = document.getElementById('pad-up');
+const padDown   = document.getElementById('pad-down');
+// ===== 方向鍵 Pad：步進倍率（×1 / ×10）=====
+const padStep   = document.getElementById('pad-step');
+const padStep10 = document.getElementById('pad-step10');
 
-  nudgeLeft.addEventListener('click', ()=> nudgeSelected(-1,0));
-  nudgeRight.addEventListener('click', ()=> nudgeSelected(1,0));
-  nudgeUp.addEventListener('click', ()=> nudgeSelected(0,-1));
-  nudgeDown.addEventListener('click', ()=> nudgeSelected(0,1));
-  nudgeLeft10.addEventListener('click', ()=> nudgeSelected(-10,0));
-  nudgeRight10.addEventListener('click', ()=> nudgeSelected(10,0));
+let PAD_STEP = 1;
+function getStep(){ return PAD_STEP; }
+
+function applyStepUI(){
+  if(padStep){
+    padStep.textContent = '×1';
+    padStep.classList.toggle('text-rose-600', PAD_STEP === 1);
+    padStep.classList.toggle('font-semibold', PAD_STEP === 1);
+    padStep.classList.toggle('text-slate-700', PAD_STEP !== 1);
+  }
+  if(padStep10){
+    padStep10.textContent = '×10';
+    padStep10.classList.toggle('text-rose-600', PAD_STEP === 10);
+    padStep10.classList.toggle('font-semibold', PAD_STEP === 10);
+    padStep10.classList.toggle('text-slate-700', PAD_STEP !== 10);
+  }
+}
+
+function setPadStep(v){
+  PAD_STEP = (v === 10) ? 10 : 1;
+  applyStepUI();
+}
+
+// 初始化 UI
+applyStepUI();
+
+// 點擊切換
+padStep?.addEventListener('click', (e)=>{
+  e.preventDefault();
+  setPadStep(1);
+});
+
+padStep10?.addEventListener('click', (e)=>{
+  e.preventDefault();
+  setPadStep(10);
+});
+
+
+let _nudgeTimer = null;
+let _nudgeDelay = null;
+
+function stopNudgeHold(){
+  if(_nudgeDelay){ clearTimeout(_nudgeDelay); _nudgeDelay = null; }
+  if(_nudgeTimer){ clearInterval(_nudgeTimer); _nudgeTimer = null; }
+}
+
+function bindHoldNudge(btn, dx, dy){
+  if(!btn) return;
+
+  const start = (e)=>{
+    if(!selectedEl) return; // 沒選到卡片就不動
+    e.preventDefault();
+
+    stopNudgeHold();
+
+    // 立即先走一步
+    nudgeSelected(dx * getStep(), dy * getStep());
+
+    // 之後開始連發
+    const firstDelay = 140;
+    const interval = 32;
+
+    _nudgeDelay = setTimeout(()=>{
+      _nudgeTimer = setInterval(()=>{
+        if(!selectedEl) return;
+        nudgeSelected(dx * getStep(), dy * getStep());
+      }, interval);
+    }, firstDelay);
+  };
+
+  const end = ()=> stopNudgeHold();
+
+  // pointer：手機/桌機都適用
+  btn.addEventListener('pointerdown', start);
+  btn.addEventListener('pointerup', end);
+  btn.addEventListener('pointercancel', end);
+  btn.addEventListener('pointerleave', end);
+}
+
+// 綁定四方向
+bindHoldNudge(padLeft,  -1,  0);
+bindHoldNudge(padRight,  1,  0);
+bindHoldNudge(padUp,     0, -1);
+bindHoldNudge(padDown,   0,  1);
+
+
+  // 綁定輸入欄位(x/y)
+if (posXInput){
+  posXInput.addEventListener('change', ()=>{
+    if(!selectedEl) return;
+    selectedEl.dataset.modelX = Number(posXInput.value)||0;
+    updateDisplayPos(selectedEl);
+  });
+}
+if (posYInput){
+  posYInput.addEventListener('change', ()=>{
+    if(!selectedEl) return;
+    selectedEl.dataset.modelY = Number(posYInput.value)||0;
+    updateDisplayPos(selectedEl);
+  });
+}
+
 
   // 使用鍵盤方向鍵進行微移
   document.addEventListener('keydown', (e)=>{

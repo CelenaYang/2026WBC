@@ -18,9 +18,55 @@
       body{ padding:12px; }
       #canvas-root{ padding-left:8px; padding-right:8px; }
       #canvas{ border-width:1px; }
-      /* 縮小上下控制區間距，減少整體高度佔用 */
-      .max-w-5xl > .space-y-4 > *{ padding-top:6px; padding-bottom:6px; }
+
+      /* .max-w-5xl > .space-y-4 > * { padding-top:6px; padding-bottom:6px; } */
     }
+
+    /* ===== 方向鍵 Pad（鍵盤風格） ===== */
+      .dir-btn{
+        width:44px;
+        height:44px;
+        border-radius:8px;
+        background:#111827;
+        color:#fff;
+        font-size:18px;
+        font-weight:600;
+        border:1px solid #374151;
+        box-shadow: 0 2px 0 rgba(0,0,0,.35);
+      }
+
+      /* hover：只提亮一點點 */
+      .dir-btn:hover{
+        background:#1f2937;
+      }
+
+      /* 按下才是真的回饋 */
+      .dir-btn:active{
+        transform: translateY(1px);
+        box-shadow: 0 1px 0 rgba(0,0,0,.35);
+      }
+      /*ICON */
+      .dir-icon{
+        width:18px;
+        height:18px;
+        fill:#fff;
+        display:block;
+        margin:auto;
+      }
+
+    /* ===== 速度切換按鈕 ===== */
+    .speed-btn{
+      width:44px;
+      height:28px;
+      border-radius:6px;
+      font-size:12px;
+      background:#fff;
+      border:1px solid #cbd5e1;
+    }
+    .speed-btn.text-rose-600{
+      border-color:#fb7185;
+    }
+
   </style>
 </head>
 <body class="bg-slate-50 text-slate-800 p-6">
@@ -65,37 +111,58 @@
       <!-- 隊旗卡縮放（全域） -->
       <div class="flex flex-wrap gap-2 items-center">
         <div class="text-sm text-slate-700 w-20">隊旗縮放：</div>
-        <input id="flag-scale" type="range" min="40" max="120" value="70" class="w-56" />
-        <div id="flag-scale-label" class="text-sm text-slate-700">70%</div>
+        <input id="flag-scale" type="range" min="40" max="120" value="80" class="w-56" />
+        <div id="flag-scale-label" class="text-sm text-slate-700">80%</div>
       </div>
 
 
       <!-- 精細位置調整控制面板 -->
-      <div id="pos-controls" class="grid grid-cols-1 gap-2">
-        <div class="flex items-center gap-2">
-          <div class="text-sm text-slate-700 w-20">已選卡片：</div>
-          <div id="selected-info" class="flex-1 text-sm text-slate-700">--</div>
-        </div>
-        <div class="flex items-center gap-2">
-          <label class="text-sm text-slate-700">X:</label>
-          <input id="pos-x" type="number" class="w-24 p-1 border rounded" />
-          <label class="text-sm text-slate-700">Y:</label>
-          <input id="pos-y" type="number" class="w-24 p-1 border rounded" />
-          <div class="flex items-center gap-1 ml-2">
-            <button id="nudge-left" class="bg-white border border-slate-200 hover:bg-slate-50 rounded-lg px-3 py-1">◀1</button>
-            <button id="nudge-right" class="bg-white border border-slate-200 hover:bg-slate-50 rounded-lg px-3 py-1">1▶</button>
-            <button id="nudge-up" class="bg-white border border-slate-200 hover:bg-slate-50 rounded-lg px-3 py-1">▲1</button>
-            <button id="nudge-down" class="bg-white border border-slate-200 hover:bg-slate-50 rounded-lg px-3 py-1">▼1</button>
-            <button id="nudge-left10" class="bg-white border border-slate-200 hover:bg-slate-50 rounded-lg px-2 py-1 text-xs">◀10</button>
-            <button id="nudge-right10" class="bg-white border border-slate-200 hover:bg-slate-50 rounded-lg px-2 py-1 text-xs">10▶</button>
-          </div>
-        </div>
+      <div class="ml-2 flex items-center gap-3 select-none touch-none">
+      <!-- 方向鍵（反 T） -->
+      <div class="grid grid-cols-3 grid-rows-2 gap-1 items-center">
+
+        <!-- 上：空 / 上 / 空 -->
+        <div></div>
+        <button id="pad-up" class="dir-btn">
+          <svg viewBox="0 0 24 24" class="dir-icon">
+            <path d="M12 5l7 7H5z"/>
+          </svg>
+        </button>
+        <div></div>
+
+        <!-- 下排：左 / 下 / 右 -->
+        <button id="pad-left" class="dir-btn">
+          <svg viewBox="0 0 24 24" class="dir-icon">
+            <path d="M5 12l7-7v14z"/>
+          </svg>
+        </button>
+
+        <button id="pad-down" class="dir-btn">
+          <svg viewBox="0 0 24 24" class="dir-icon">
+            <path d="M12 19l-7-7h14z"/>
+          </svg>
+        </button>
+
+        <button id="pad-right" class="dir-btn">
+          <svg viewBox="0 0 24 24" class="dir-icon">
+            <path d="M19 12l-7 7V5z"/>
+          </svg>
+        </button>
+
       </div>
+        <!-- 速度切換 -->
+        <div class="flex flex-col gap-1">
+          <button id="pad-step" class="speed-btn">×1</button>
+          <button id="pad-step10" class="speed-btn">×10</button>
+        </div>
+
+      </div>
+
 
       <!-- 狀態按鈕：對已選卡片設定晉級/未晉級 -->
       <div class="flex gap-2 items-center">
         <div class="text-sm text-slate-700 w-20">切換狀態：</div>
-        <div class="flex items-center gap-2">
+        <div class="flex flex-wrap items-center gap-2">
           <button id="set-adv" class="bg-white border border-slate-200 hover:bg-slate-50 rounded-lg px-4 py-2 text-sm">設定晉級</button>
           <button id="set-elim" class="bg-white border border-slate-200 hover:bg-slate-50 rounded-lg px-4 py-2 text-sm">設定未晉級</button>
           <button id="set-clear" class="bg-white border border-slate-200 hover:bg-slate-50 rounded-lg px-4 py-2 text-sm">清除狀態</button>
