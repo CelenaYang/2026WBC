@@ -87,6 +87,11 @@
           touch-action: manipulation;
         }
       }
+
+      .iframe-schedule {
+        height: 180px;
+      }
+
   </style>
 </head>
 <body class="bg-slate-50 text-slate-800 p-6">
@@ -214,12 +219,56 @@
 
   </div>
 
-  <!-- CSV table for reference -->
-  <div class="bg-white border border-slate-200 rounded-xl shadow-sm p-4 max-w-5xl mx-auto mt-6">
-    <h2 class="text-sm font-medium mb-2 text-slate-900">CSV 資料參考</h2>
-    <div id="csv-table" class="text-sm text-slate-700 overflow-auto"></div>
+<!-- 後台快捷連結 -->
+<div class="bg-white border border-slate-200 rounded-xl shadow-sm p-4 max-w-5xl mx-auto mt-6">
+  <h2 class="text-sm font-medium mb-2 text-slate-900">後台快捷連結</h2>
+
+  <div class="grid gap-2 sm:grid-cols-3">
+    <a
+      href="https://editor.ettoday.net/photos/images.php7?createdate=2026-01-05&source_id=0&search_field=i.image_id&like=like&search_key=8593458"
+      target="_blank" rel="noopener noreferrer"
+      class="inline-flex items-center justify-center bg-slate-900 text-white hover:bg-slate-800 rounded-lg px-3 py-2 text-sm whitespace-nowrap"
+    >
+      圖片修改（PC）
+    </a>
+
+    <a
+      href="https://editor.ettoday.net/photos/images.php7?createdate=2026-01-05&source_id=0&search_field=i.image_id&like=like&search_key=8593461"
+      target="_blank" rel="noopener noreferrer"
+      class="inline-flex items-center justify-center bg-slate-900 text-white hover:bg-slate-800 rounded-lg px-3 py-2 text-sm whitespace-nowrap"
+    >
+      圖片修改（M）
+    </a>
+
+    <a
+      href="https://editor.ettoday.net/events/wbc/wbc_team.php7"
+      target="_blank" rel="noopener noreferrer"
+      class="inline-flex items-center justify-center bg-slate-900 text-white hover:bg-slate-800 rounded-lg px-3 py-2 text-sm whitespace-nowrap"
+    >
+      後台賽程調整
+    </a>
+  </div>
+  <div class="mt-2 text-xs text-slate-500">
+    提醒：以上連結會在新分頁開啟（需已登入後台）。
+  </div>
+</div>
+
+  <!-- 賽程資訊區（預留） -->
+  <div class="bg-white border border-slate-200 rounded-xl shadow-sm p-4 max-w-5xl mx-auto mt-4">
+<h2 class="text-sm font-medium text-slate-900">賽程資訊（預留區）</h2>
+    <div class="mt-2 text-sm text-slate-600">
+      之後可在此嵌入賽程開框／比分資訊（目前先用測試 iframe）。
+    </div>
+
+    <div class="mt-3 border border-slate-200 rounded-lg overflow-hidden">
+    <iframe
+      src="https://beta-www.ettoday.net/events/_weichi/2026wbc/iframe/iframe_2023.htm"
+      class="w-full iframe-schedule"
+      loading="lazy"
+    ></iframe>
+    </div>
   </div>
 
-  <script src="assets/main.js"></script>
+</div>
 </body>
 </html>
