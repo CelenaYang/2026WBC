@@ -90,7 +90,7 @@ function modelToDisplay(modelX, modelY){
   const FLAG_BLOCK_W = 36; // 預留給旗幟圖示的區塊寬度 (px)
   const FLAG_TEXT_GAP = 10; // 圖片與文字間隔 (px)
   // 放置在舞台上的旗幟卡固定縮放比例（非手動文字卡）
-  let PLACED_CARD_SCALE = 0.8;
+  let PLACED_CARD_SCALE = 0.9;
   // canvas 上下文供 measureText 使用
   const _textMeasureCanvas = (()=>{ const c = document.createElement('canvas'); return c.getContext('2d'); })();
   // 計算以「4字基準」的卡片固定寬度 — 傳入 fontSize 即可（text 參數不使用）
@@ -996,10 +996,10 @@ if (basePresetSelect) {
 
 if (flagScaleInput) {
   const applyScaleToAll = () => {
-    const pct = Number(flagScaleInput.value || 70);
-    PLACED_CARD_SCALE = pct / 100;
+  const pct = Number(flagScaleInput.value || 90);
+  PLACED_CARD_SCALE = pct / 100;
 
-    if (flagScaleLabel) flagScaleLabel.textContent = `${pct}%`;
+  if (flagScaleLabel) flagScaleLabel.textContent = `${pct}%`;
 
     Array.from(placedLayer.children).forEach(el => {
       try { ensurePlacedScale(el); } catch (e) {}
