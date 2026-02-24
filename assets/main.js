@@ -107,15 +107,17 @@ function modelToDisplay(modelX, modelY){
   function updateCanvasSizeFromBase(img){
     try{
       if(!img || !img.naturalWidth || !img.naturalHeight) return;
-      const newH = Math.round(CANVAS_W * (img.naturalHeight / img.naturalWidth));
+      const newH = Math.round(STAGE_W * (img.naturalHeight / img.naturalWidth));
       CANVAS_H = newH || CANVAS_H;
-      // 根據目前畫面中 canvas 的顯示寬度，計算對應的顯示高度
-      const displayW = canvasEl.clientWidth || canvasEl.getBoundingClientRect().width || CANVAS_W;
-      const displayH = Math.round(displayW * (CANVAS_H / CANVAS_W));
+      // 根據目前畫面中 canvas 的顯示寬度，計算對應的顯示高度（displayW fallback 使用 STAGE_W）
+      const displayW = canvasEl.clientWidth || canvasEl.getBoundingClientRect().width || STAGE_W;
+      const displayH = Math.round(displayW * (STAGE_H / STAGE_W));
       canvasEl.style.height = displayH + 'px';
-      // update base image intrinsic attributes for clarity
-      baseImage.width = CANVAS_W;
-      baseImage.height = CANVAS_H;
+      // 同步 canvas 元素的內部 pixel 大小以符合設計座標
+      try{ canvasEl.width = STAGE_W; canvasEl.height = STAGE_H; }catch(e){}
+      // update base image intrinsic attributes to STAGE (不使用 CANVAS_W/CANVAS_H)
+      baseImage.width = STAGE_W;
+      baseImage.height = STAGE_H;
       // 重新計算所有放置元素的顯示位置以配合新的顯示尺寸
       Array.from(placedLayer.children).forEach(ch => {
         try{ updateDisplayPos(ch); }catch(e){}
@@ -146,8 +148,38 @@ function modelToDisplay(modelX, modelY){
     }catch(e){ /* ignore */ }
   })();
 
-  // 監聽 base image 載入事件
-  baseImage.addEventListener('load', ()=> updateCanvasSizeFromBase(baseImage));
+  // 監聽 base image 載入事件：自動判斷版本並套用 stage 大小，然後更新 canvas 與 slot
+  baseImage.addEventListener('load', ()=>{
+    try{
+      const w = baseImage.naturalWidth || 0;
+      const h = baseImage.naturalHeight || 0;
+      // 判斷是否接近正方形（視為 Msite 800x800）
+      const isSquare = (Math.abs(w - h) <= 2) || (w > 0 && h > 0 && (w / h >= 0.98 && w / h <= 1.02));
+      if(isSquare){
+        try{ applyStageSize(800, 800); }catch(e){}
+        try{ if (basePresetSelect) basePresetSelect.value = 'msite'; }catch(e){}
+      } else {
+        try{ applyStageSize(1200, 490); }catch(e){}
+        try{ if (basePresetSelect) basePresetSelect.value = 'pc'; }catch(e){}
+      }
+    }catch(e){ /* ignore */ }
+
+    // 始終更新 canvas 顯示尺寸以撐開高度
+    try{ updateCanvasSizeFromBase(baseImage); }catch(e){}
+
+    // 更新 slot highlight（若函式存在）
+    try{ if (typeof updateSlotHighlight === 'function') updateSlotHighlight(); }catch(e){}
+
+    // 嘗試重新觸發 slot 偵測：優先使用 window.__wbc.runSlotDetector，再嘗試全域函式
+    try{
+      if (window.__wbc && typeof window.__wbc.runSlotDetector === 'function') window.__wbc.runSlotDetector();
+      else if (typeof window.runSlotDetector === 'function') window.runSlotDetector();
+      else {
+        // 最後 fallback 為發出原有事件，讓 slot-detector 也能監聽到
+        try{ window.dispatchEvent(new CustomEvent('wbc:baseImageChanged')); }catch(e){}
+      }
+    }catch(e){ try{ window.dispatchEvent(new CustomEvent('wbc:baseImageChanged')); }catch(_){}}
+  });
 
   // Helper: parse simple CSV
   function parseCSV(text){
@@ -303,10 +335,22 @@ function modelToDisplay(modelX, modelY){
         const f = e.dataTransfer.files[0];
         console.log('canvas: dropped file', f && f.type);
         if(f && f.type && f.type.startsWith('image/')){
-          const url = URL.createObjectURL(f);
-          baseImage.src = url;
-          return;
-        }
+            const url = URL.createObjectURL(f);
+            baseImage.src = url;
+            // ensure onload hook calls sizing and slot updates once image is ready
+            try{
+              baseImage.addEventListener('load', ()=>{
+                try{ updateCanvasSizeFromBase(baseImage); }catch(e){}
+                try{ if (typeof updateSlotHighlight === 'function') updateSlotHighlight(); }catch(e){}
+                try{
+                  if (window.__wbc && typeof window.__wbc.runSlotDetector === 'function') window.__wbc.runSlotDetector();
+                  else if (typeof window.runSlotDetector === 'function') window.runSlotDetector();
+                }catch(e){}
+              }, { once: true });
+            }catch(e){}
+            try{ window.dispatchEvent(new CustomEvent('wbc:baseImageChanged')); }catch(e){}
+            return;
+          }
       }
 
       // 否則嘗試處理來自清單卡片的拖放（application/json 負載）
@@ -372,7 +416,7 @@ function modelToDisplay(modelX, modelY){
 
     // apply display-aware scaling so cards visually follow the stage zoom
     try{
-      const displayScale = rect.width / CANVAS_W;
+      const displayScale = rect.width / STAGE_W;
       if (!item.manual) {
         el.style.transform = `translate(-50%, -50%) scale(${PLACED_CARD_SCALE * displayScale})`;
       } else {
@@ -444,7 +488,7 @@ function modelToDisplay(modelX, modelY){
     // store model coordinates (in 1200x490 space)
     el.dataset.modelX = modelX;
     el.dataset.modelY = modelY;
-    const scale = CANVAS_W / rect.width;
+    const scale = STAGE_W / rect.width;
     el.dataset.width = Math.round((el.getBoundingClientRect().width||160)*scale);
 
     // enable pointer dragging
@@ -981,18 +1025,37 @@ if (posYInput){
   clearBtn.addEventListener('click', ()=>{ placedLayer.innerHTML = ''; setSelected(null); });
 
 // 底圖尺寸版本（只 log，不影響功能）
+function applyStageSize(w, h){
+  STAGE_W = w; STAGE_H = h;
+
+  // 同步 DOM 尺寸（關鍵）
+ //canvasEl.style.width = w + 'px';
+  //canvasEl.style.height = h + 'px';
+
+  // 同步 canvas 元素的內部 pixel 大小，確保 display<->model 轉換一致
+  try{ canvasEl.width = w; canvasEl.height = h; }catch(e){}
+
+  // 同步底圖標註尺寸（避免某些瀏覽器用 width/height 影響繪製）
+  baseImage.width = w;
+  baseImage.height = h;
+
+  // 立即更新顯示高度與相關顯示換算（若 baseImage 已載入）
+  try{ if (baseImage && baseImage.naturalWidth && baseImage.naturalHeight) updateCanvasSizeFromBase(baseImage); }catch(e){}
+
+  // 重算所有卡片位置/縮放
+  Array.from(placedLayer.children).forEach(updateDisplayPos);
+
+  // 通知 slot-detector 重新偵測
+  try{ window.dispatchEvent(new CustomEvent('wbc:baseImageChanged')); }catch(e){}
+}
+
 if (basePresetSelect) {
   basePresetSelect.addEventListener('change', () => {
-    if (basePresetSelect.value === 'pc') {
-      STAGE_W = 1200; STAGE_H = 490;
-    } else {
-      STAGE_W = 800;  STAGE_H = 800;
-    }
-
-    // 重算所有卡片顯示位置
-    Array.from(placedLayer.children).forEach(updateDisplayPos);
+    if (basePresetSelect.value === 'pc') applyStageSize(1200, 490);
+    else applyStageSize(800, 800);
   });
 }
+
 
 if (flagScaleInput) {
   const applyScaleToAll = () => {
@@ -1020,6 +1083,18 @@ if (flagScaleInput) {
     if(!f) return;
     const url = URL.createObjectURL(f);
     baseImage.src = url;
+    // ensure onload hook calls sizing and slot updates once image is ready
+    try{
+      baseImage.addEventListener('load', ()=>{
+        try{ updateCanvasSizeFromBase(baseImage); }catch(e){}
+        try{ if (typeof updateSlotHighlight === 'function') updateSlotHighlight(); }catch(e){}
+        try{
+          if (window.__wbc && typeof window.__wbc.runSlotDetector === 'function') window.__wbc.runSlotDetector();
+          else if (typeof window.runSlotDetector === 'function') window.runSlotDetector();
+        }catch(e){}
+      }, { once: true });
+    }catch(e){}
+    try{ window.dispatchEvent(new CustomEvent('wbc:baseImageChanged')); }catch(e){}
   });
 
   // 注意：canvas 的放置處理已在前面統一實作
@@ -1120,4 +1195,12 @@ function ensurePlacedScale(el){
       csvTable.innerHTML = '';
       csvTable.appendChild(tbl);
     }
+    // 對外暴露少量 API 給外部模組（例如 slot-detector）使用
+    try{
+      window.__wbc = window.__wbc || {};
+      window.__wbc.addPlacedCard = addPlacedCard;
+      window.__wbc.modelToDisplay = modelToDisplay;
+      window.__wbc.clientToModel = clientToModel;
+      window.__wbc.getStage = () => ({ STAGE_W, STAGE_H, canvasEl, baseImage, placedLayer });
+    }catch(e){ /* ignore */ }
 })();
